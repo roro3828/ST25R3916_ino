@@ -1,5 +1,29 @@
-#include"felica2.hpp"
+/**
+ * @attention
+ * MIT License
+ * 
+ * Copyright (c) 2024 ろ
+ * 
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
 
+#include"felica2.hpp"
 
 /**********************************************************************************************
  * Felica
@@ -408,6 +432,29 @@ void Felica::write_force(const servicecode_t &servicecode,const blockcount_t &bl
 
 void Felica::write(const servicecode_t &servicecode,const blockcount_t &blocknum,const uint8_t (&data)[FELICA_BLOCK_SIZE]){
     write_force(servicecode,blocknum,data);
+}
+
+void Felica::read_force(const servicecode_t &servicecode,const blockcount_t &blocknum,uint8_t (&data)[FELICA_BLOCK_SIZE]){
+    FelicaService *service=get_service(servicecode);
+    if(service==NULL){
+        return;
+    }
+    if(service->service_block_count<=blocknum){
+        return;
+    }
+
+    //読み込むブロックのメタデータ
+    const FelicaBlockData *blockdata=(FelicaBlockData*)this->block[service->service_block_index];
+    const uint8_t (*data_block)[FELICA_BLOCK_SIZE]=&this->block[service->service_block_index+FELICA_BLOCK_METADATA_SIZE];
+    if(felica_is_Service_Cyclic(service->servicecode)){
+        memcpy(data,data_block[(blocknum+blockdata->cyclic_index)%service->service_block_count],FELICA_BLOCK_SIZE);
+    }
+    else{
+        memcpy(data,data_block[blocknum],FELICA_BLOCK_SIZE);
+    }
+}
+void Felica::read(const servicecode_t &servicecode,const blockcount_t &blocknum,uint8_t (&data)[FELICA_BLOCK_SIZE]){
+    read(servicecode,blocknum,data);
 }
 
 /**********************************************************************************************

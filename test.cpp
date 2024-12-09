@@ -26,5 +26,16 @@ int main(){
     fe.write(0x090F,0,data);
     data[0]=4;
     fe.write(0x090F,0,data);
+    fe.write(0x090F,0,data);
+    fe.write(0x090F,0,data);
+    fe.write(0x090F,0,data);
+    fe.write(0x090F,0,data);
+    fe.write(0x090F,0,data);
     fe.show_block();
+    printf("\n");
+    fe.read_force(0x090F,4,data);
+    for(int i=0;i<FELICA_BLOCK_SIZE;i++){
+        printf("%02X ",data[i]);
+    }
+    printf("\n");
 }
