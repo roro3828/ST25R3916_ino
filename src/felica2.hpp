@@ -212,6 +212,8 @@ using servicecode_t=uint16_t;
 #define FELICA_BLOCK_LIST_ELEMENT_LEN_BIT 1U
 #define FELICA_BLOCK_LIST_ELEMENT_ACCESS_MODE_BIT 3U
 #define FELICA_BLOCK_LIST_ELEMENT_SERVICE_CODE_LIST_ORDER_BIT 4U
+#define FELICA_BLOCK_LIST_ELEMENT_SHORT 1U
+#define FELICA_BLOCK_LIST_ELEMENT_LONG 0U
 
 class BlockListElement{
     public:
@@ -227,13 +229,13 @@ class BlockListElement{
      * @param[in] buf
      */
     BlockListElement(const uint8_t *buf);
-
     /**
      * @brief ブロックリストエレメントを配列に格納する
      * @param[out] buf 格納する配列の先頭ポインタ FELICA_BLOCK_LIST_ELEMENT_MAX_SIZE以上の長さが必要
      * @return 格納したブロックリストエレメントの長さ
      */
     uint8_t set_element_to_buf(uint8_t *buf)const;
+    uint8_t get_element_len()const;
 };
 
 
@@ -393,7 +395,7 @@ class Felica{
      * @param[out] txBuf 送信するデータを格納する 配列は FELICA_TX_BUF_SIZE 以上の長さである必要がある。1バイト目がレスポンスコード
      * @param[out] txBufLen 送信するデータの長さを格納する。
      */
-    void listen_Read_Without_Encryption(const uint8_t (&idm)[FELICA_IDM_SIZE],const uint8_t &service_count,const uint8_t *service_code_list,const uint8_t &block_count,const BlockListElement **block_list,uint8_t *txBuf,uint16_t *txBufLen);
+    void listen_Read_Without_Encryption(const uint8_t (&idm)[FELICA_IDM_SIZE],const uint8_t &service_count,const uint8_t *service_code_list,const uint8_t &block_count,const uint8_t *block_list,uint8_t *txBuf,uint16_t *txBufLen);
 
     /**
      * @brief Felicaのカードエミュレーション Request System Codeを実行する

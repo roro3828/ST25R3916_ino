@@ -522,7 +522,7 @@ void Felica::listen(const uint8_t *rxBuf,const uint16_t rxBufLen,uint8_t *txBuf,
         case FELICA_READ_WITHOUT_ENCRYPTION_CMD_CODE:{
             //サイズをチェック
             const uint8_t service_count=rxBuf[FELICA_CMD_SIZE+FELICA_IDM_SIZE];
-            const uint8_t block_count=rxBuf[FELICA_CMD_SIZE+FELICA_IDM_SIZE+1+2*service_count];
+            const uint8_t block_count=rxBuf[FELICA_CMD_SIZE+FELICA_IDM_SIZE+1+FELICA_SERVICE_CODE_SIZE*service_count];
             if(!(((FELICA_CMD_SIZE+FELICA_IDM_SIZE+2+2*service_count+2*block_count)<=rxBufLen)&&
                 (rxBufLen<=(FELICA_CMD_SIZE+FELICA_IDM_SIZE+2+2*service_count+3*block_count)))){
                 return;
@@ -530,24 +530,7 @@ void Felica::listen(const uint8_t *rxBuf,const uint16_t rxBufLen,uint8_t *txBuf,
             uint8_t idm[FELICA_IDM_SIZE];
             memcpy(idm,&rxBuf[FELICA_CMD_SIZE],FELICA_IDM_SIZE);
 
-            const BlockListElement **block_list=new const BlockListElement*[block_count];
-            uint16_t idx=0;
-            for(uint8_t i=0;i<block_count;i++){
-                block_list[i]=new BlockListElement(&rxBuf[FELICA_CMD_SIZE+FELICA_IDM_SIZE+2+2*service_count+idx]);
-                if(block_list[i]->len==1){
-                    idx+=FELICA_BLOCK_LIST_ELEMENT_MIN_SIZE;
-                }
-                else{
-                    idx+=FELICA_BLOCK_LIST_ELEMENT_MAX_SIZE;
-                }
-            }
-
-            listen_Read_Without_Encryption(idm,service_count,&rxBuf[FELICA_CMD_SIZE+FELICA_IDM_SIZE+1],block_count,block_list,txBuf,txBufLen);
-            //メモリ解放
-            for(uint8_t i=0;i<block_count;i++){
-                delete block_list[i];
-            }
-            delete[] block_list;
+            listen_Read_Without_Encryption(idm,service_count,&rxBuf[FELICA_CMD_SIZE+FELICA_IDM_SIZE+1],block_count,&rxBuf[FELICA_CMD_SIZE+FELICA_IDM_SIZE+2+FELICA_SERVICE_CODE_SIZE*service_count],txBuf,txBufLen);
         }
         break;
         case FELICA_REQUEST_SYSTEM_CODE_CMD_CODE:{
@@ -667,7 +650,7 @@ void Felica::listen_Request_Response(const uint8_t (&idm)[FELICA_IDM_SIZE],uint8
     memcpy(&txBuf[FELICA_CMD_SIZE],this->current_system->idm,FELICA_IDM_SIZE);
     txBuf[FELICA_CMD_SIZE+FELICA_IDM_SIZE]=this->current_mode;
 }
-void Felica::listen_Read_Without_Encryption(const uint8_t (&idm)[FELICA_IDM_SIZE],const uint8_t &service_count,const uint8_t *service_code_list,const uint8_t &block_count,const BlockListElement **block_list,uint8_t *txBuf,uint16_t *txBufLen){
+void Felica::listen_Read_Without_Encryption(const uint8_t (&idm)[FELICA_IDM_SIZE],const uint8_t &service_count,const uint8_t *service_code_list,const uint8_t &block_count,const uint8_t *block_list,uint8_t *txBuf,uint16_t *txBufLen){
     *txBufLen=0;
     if(this->initialized!=FELICA_2ND_INITIALIZED){
         return;
@@ -699,16 +682,18 @@ void Felica::listen_Read_Without_Encryption(const uint8_t (&idm)[FELICA_IDM_SIZE
 
     for(uint8_t i=0;i<block_count;i++){
         //アクセスモードが0以外の時終了
-        if(block_list[i]->access_mode!=0x000){
+        const BlockListElement element(&block_list[idx]);
+        idx+=element.get_element_len();
+        if(element.access_mode!=0x00){
             txBuf[FELICA_CMD_SIZE+FELICA_IDM_SIZE]=i+1;
             return;
         }
 
         //サービスコードはリトルエンディアン
-        const servicecode_t service_code=*((_uint16_l*)&service_code_list[2*block_list[i]->service_code_list_order]);
+        const servicecode_t service_code=*((_uint16_l*)&service_code_list[2*element.service_code_list_order]);
 
         //ブロックの読み込みに失敗した場合終了
-        if(!this->read(service_code,block_list[i]->block_num,block_data[i])){
+        if(!this->read(service_code,element.block_num,block_data[i])){
             txBuf[FELICA_CMD_SIZE+FELICA_IDM_SIZE]=i+1;
             return;
         }
@@ -750,7 +735,7 @@ void Felica::listen_Request_System_Code(const uint8_t (&idm)[FELICA_IDM_SIZE],ui
  * Block list element
  **********************************************************************************************/
 BlockListElement::BlockListElement(const uint8_t &access_mode,const uint8_t &service_code_list_order,const uint16_t &block_num):
-    len((block_num<=0xFF)?1U:0U),                           //1ビット
+    len((block_num<=0xFF)?FELICA_BLOCK_LIST_ELEMENT_SHORT:FELICA_BLOCK_LIST_ELEMENT_LONG),//1ビット
     access_mode(access_mode&0b111),                         //3ビット
     service_code_list_order(service_code_list_order&0b1111),//4ビット
     block_num(block_num){}
@@ -763,11 +748,14 @@ uint8_t BlockListElement::set_element_to_buf(uint8_t *buf)const{
     buf[0]=(this->len<<(FELICA_BLOCK_LIST_ELEMENT_ACCESS_MODE_BIT+FELICA_BLOCK_LIST_ELEMENT_SERVICE_CODE_LIST_ORDER_BIT))+(this->access_mode<<FELICA_BLOCK_LIST_ELEMENT_SERVICE_CODE_LIST_ORDER_BIT)+this->service_code_list_order;
     //リトルエンディアン
     buf[1]=(this->block_num&0xFF);
-    if(this->len==0){
+    if(this->len==FELICA_BLOCK_LIST_ELEMENT_LONG){
         buf[2]=(this->block_num>>8)&0xFF;
         return FELICA_BLOCK_LIST_ELEMENT_MAX_SIZE;
     }
     return FELICA_BLOCK_LIST_ELEMENT_MIN_SIZE;
+}
+uint8_t BlockListElement::get_element_len()const{
+    return (this->len==FELICA_BLOCK_LIST_ELEMENT_SHORT)?FELICA_BLOCK_LIST_ELEMENT_MIN_SIZE:FELICA_BLOCK_LIST_ELEMENT_MAX_SIZE;
 }
 
 /**********************************************************************************************

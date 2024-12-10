@@ -49,18 +49,18 @@ int main(){
 
     rxBuf[0]=0x0F;
     rxBuf[1]=0x09;
-
-    BlockListElement *bp[3];
-    
     BlockListElement b1(0x00,0,0);
     BlockListElement b2(0x00,0,2);
-    BlockListElement b3(0x00,0,10);
-    bp[0]=&b1;
-    bp[1]=&b2;
-    bp[2]=&b3;
+    b1.set_element_to_buf(&rxBuf[2]);
+    b2.set_element_to_buf(&rxBuf[2+b1.get_element_len()]);
+    printf("rx:");
+    for(uint16_t i=0;i<10;i++){
+        printf("%02X ",rxBuf[i]);
+    }
+    printf("\n");
 
-    fe.listen_Read_Without_Encryption(idm,1,rxBuf,3,(const BlockListElement**)&bp,txBuf,&txBufLen);
-    fe.listen_Request_System_Code(idm,txBuf,&txBufLen);
+    fe.listen_Read_Without_Encryption(idm,1,rxBuf,2,&rxBuf[2],txBuf,&txBufLen);
+    //fe.listen_Request_System_Code(idm,txBuf,&txBufLen);
 
     printf("tx:");
     for(uint16_t i=0;i<txBufLen;i++){
