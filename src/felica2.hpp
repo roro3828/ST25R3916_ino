@@ -31,6 +31,39 @@
 #include<cstring>
 #include<cstdint>
 
+/***************************************************************
+ * utils
+ */
+
+/**
+ * リトルエンディアン16bit
+ */
+class _uint16_l{
+    uint8_t data[2];
+    public:
+    _uint16_l():data{0x00,0x00}{};
+    _uint16_l(uint16_t x):data{(uint8_t)(x&0xFF),(uint8_t)((x>>8)&0xFF)}{}
+    operator uint16_t()const{
+        uint16_t tmp=data[1];
+        tmp=data[0]+(tmp<<8);
+        return tmp;
+    }
+};
+/**
+ * ビッグエンディアン16bit
+ */
+class _uint16_b{
+    uint8_t data[2];
+    public:
+    _uint16_b():data{0x00,0x00}{};
+    _uint16_b(uint16_t x):data{(uint8_t)((x>>8)&0xFF),(uint8_t)(x&0xFF)}{}
+    operator uint16_t()const{
+        uint16_t tmp=data[0];
+        tmp=data[1]+(tmp<<8);
+        return tmp;
+    }
+};
+
 
 //デバッグ
 #define _DEBUG_
@@ -61,7 +94,7 @@ using blockcount_t=uint16_t;
  * Felicaのシステムコードのサイズ
  */
 #define FELICA_SYSTEM_CODE_SIZE 2U
-using systemcode_t=uint16_t;
+using systemcode_t=_uint16_b;
 #define FELICA_SYSTEM_DATA_SIZE       2U
 #define FELICA_SYSTEM_MIN_BLOCK_COUNT (FELICA_SYSTEM_DATA_SIZE+1U)
 /**
@@ -180,6 +213,30 @@ using servicecode_t=uint16_t;
 #define FELICA_BLOCK_LIST_ELEMENT_ACCESS_MODE_BIT 3U
 #define FELICA_BLOCK_LIST_ELEMENT_SERVICE_CODE_LIST_ORDER_BIT 4U
 
+class BlockListElement{
+    public:
+    const uint8_t len:FELICA_BLOCK_LIST_ELEMENT_LEN_BIT;
+    const uint8_t access_mode:FELICA_BLOCK_LIST_ELEMENT_ACCESS_MODE_BIT;
+    const uint8_t service_code_list_order:FELICA_BLOCK_LIST_ELEMENT_SERVICE_CODE_LIST_ORDER_BIT;
+
+    const uint16_t block_num;
+
+    BlockListElement(const uint8_t &access_mode,const uint8_t &service_code_list_order,const uint16_t &block_num);
+    /**
+     * @brief 配列からブロックリストエレメントを生成する
+     * @param[in] buf
+     */
+    BlockListElement(const uint8_t *buf);
+
+    /**
+     * @brief ブロックリストエレメントを配列に格納する
+     * @param[out] buf 格納する配列の先頭ポインタ FELICA_BLOCK_LIST_ELEMENT_MAX_SIZE以上の長さが必要
+     * @return 格納したブロックリストエレメントの長さ
+     */
+    uint8_t set_element_to_buf(uint8_t *buf)const;
+};
+
+
 struct FelicaSystem{
     systemcode_t systemcode;
     uint16_t system_key_ver;
@@ -188,17 +245,15 @@ struct FelicaSystem{
     uint8_t idm[FELICA_IDM_SIZE];
     //割り当て済みのエリア/サービス数
     blockcount_t area_service_data_used_count;
+    //割り当て済みブロック数
+    blockcount_t block_used_count;
 };
-
 
 struct FelicaArea{
     areacode_t areacode;
     servicecode_t end_servicecode;
     uint16_t area_key_ver;
-    //エリアが管理するブロック数
-    blockcount_t area_block_count;
-    //使用済みのブロック数
-    blockcount_t area_block_used;
+    areacode_t parent_code;
 };
 struct FelicaService{
     servicecode_t servicecode;
@@ -209,6 +264,7 @@ struct FelicaService{
     blockcount_t service_block_index;
     //サービが参照するサービスの場所
     blockcount_t reference_index;
+    areacode_t parent_code;
 };
 struct FelicaBlockData{
     blockcount_t cyclic_index;
@@ -223,6 +279,7 @@ class Felica{
 
 
     FelicaService *get_service(const servicecode_t &servicecode);
+    FelicaArea *get_area(const areacode_t &areacode);
 
     public:
 
@@ -250,7 +307,13 @@ class Felica{
     FelicaSystem* get_system(const uint8_t (&idm)[FELICA_IDM_SIZE])const;
     FelicaSystem* get_system(const systemcode_t &systemcode)const;
 
+    /**
+     * @brief 現在のシステムを切り替える 失敗した場合NULLが返される
+     */
     FelicaSystem* switch_system(const uint8_t (&idm)[FELICA_IDM_SIZE]);
+    /**
+     * @brief 現在のシステムを切り替える 失敗した場合NULLが返される
+     */
     FelicaSystem* switch_system(const systemcode_t &systemcode);
 
     /**
@@ -267,7 +330,7 @@ class Felica{
     /**
      * @brief エリアを追加
      */
-    FelicaArea* add_area(const blockcount_t &new_area_size,const areacode_t &areacode,const servicecode_t &end_servicecode,const uint16_t &area_key_ver);
+    FelicaArea* add_area(const areacode_t &areacode,const servicecode_t &end_servicecode,const uint16_t &area_key_ver);
     /**
      * @brief サービスを追加
      */
@@ -281,13 +344,64 @@ class Felica{
     /**
      * @brief 指定したサービスの指定したブロックにデータを書き込む
      */
-    void write(const servicecode_t &servicecode,const blockcount_t &blocknum,const uint8_t (&data)[FELICA_BLOCK_SIZE]);
-    void write_force(const servicecode_t &servicecode,const blockcount_t &blocknum,const uint8_t (&data)[FELICA_BLOCK_SIZE]);
+    bool write(const servicecode_t &servicecode,const blockcount_t &blocknum,const uint8_t (&data)[FELICA_BLOCK_SIZE]);
+    bool write_force(const servicecode_t &servicecode,const blockcount_t &blocknum,const uint8_t (&data)[FELICA_BLOCK_SIZE]);
     /**
      * @brief 指定したサービスの指定したブロックのデータを読み込む
      */
-    void read(const servicecode_t &servicecode,const blockcount_t &blocknum,uint8_t (&data)[FELICA_BLOCK_SIZE]);
-    void read_force(const servicecode_t &servicecode,const blockcount_t &blocknum,uint8_t (&data)[FELICA_BLOCK_SIZE]);
+    bool read(const servicecode_t &servicecode,const blockcount_t &blocknum,uint8_t (&data)[FELICA_BLOCK_SIZE]);
+    bool read_force(const servicecode_t &servicecode,const blockcount_t &blocknum,uint8_t (&data)[FELICA_BLOCK_SIZE]);
+
+        /**
+     * @brief Felicaのカードエミュレーションを実行する
+     * @param[in] rxBuf 受信したデータ 1バイト目がコマンドコード
+     * @param[in] rxBufLen 受信したデータの長さ
+     * @param[out] txBuf 送信するデータを格納する 配列は FELICA_TX_BUF_SIZE 以上の長さである必要がある。
+     * @param[out] txBufLen 送信するデータの長さを格納する。
+     */
+    void listen(const uint8_t *rxBuf,const uint16_t rxBufLen,uint8_t *txBuf,uint16_t *txBufLen);
+    /**
+     * @brief Felicaのカードエミュレーション Pollingを実行する https://www.sony.co.jp/Products/felica/business/tech-support/data/card_usersmanual_2.21j.pdf
+     * @param[in] system_code 
+     * @param[out] txBuf 送信するデータを格納する 配列は FELICA_TX_BUF_SIZE 以上の長さである必要がある。1バイト目がレスポンスコード
+     * @param[out] txBufLen 送信するデータの長さを格納する。
+     */
+    void listen_Polling(const systemcode_t &system_code,const uint8_t &request_code,const uint8_t &time_slot,uint8_t *txBuf,uint16_t *txBufLen);
+    /**
+     * @brief Felicaのカードエミュレーション Request Serviceを実行する
+     * @param[in] idm IDm
+     * @param[in] node_count ノード数 1以上32以下
+     * @param[in] node_code_list コードの配列 長さは2*node_count
+     * @param[out] txBuf 送信するデータを格納する 配列は FELICA_TX_BUF_SIZE 以上の長さである必要がある。1バイト目がレスポンスコード
+     * @param[out] txBufLen 送信するデータの長さを格納する。
+     */
+    void listen_Request_Service(const uint8_t (&idm)[FELICA_IDM_SIZE],const uint8_t &node_count,const uint8_t *node_code_list,uint8_t *txBuf,uint16_t *txBufLen);
+    /**
+     * @brief Felicaのカードエミュレーション Request Responseを実行する
+     * @param[in] idm IDm
+     * @param[out] txBuf 送信するデータを格納する 配列は FELICA_TX_BUF_SIZE 以上の長さである必要がある。1バイト目がレスポンスコード
+     * @param[out] txBufLen 送信するデータの長さを格納する。
+     */
+    void listen_Request_Response(const uint8_t (&idm)[FELICA_IDM_SIZE],uint8_t *txBuf,uint16_t *txBufLen);
+
+    /**
+     * @brief Felicaのカードエミュレーション Read Without Encryptionを実行する
+     * @param[in] idm IDm
+     * @param[in] service_count サービス数 1以上32以下
+     * @param[in] service_code_list サービスコードリスト リトルエンディアンで記述する 長さは2*service_count
+     * @param[in] block_count ブロック数
+     * @param[out] txBuf 送信するデータを格納する 配列は FELICA_TX_BUF_SIZE 以上の長さである必要がある。1バイト目がレスポンスコード
+     * @param[out] txBufLen 送信するデータの長さを格納する。
+     */
+    void listen_Read_Without_Encryption(const uint8_t (&idm)[FELICA_IDM_SIZE],const uint8_t &service_count,const uint8_t *service_code_list,const uint8_t &block_count,const BlockListElement **block_list,uint8_t *txBuf,uint16_t *txBufLen);
+
+    /**
+     * @brief Felicaのカードエミュレーション Request System Codeを実行する
+     * @param[in] idm IDm
+     * @param[out] txBuf 送信するデータを格納する 配列は FELICA_TX_BUF_SIZE 以上の長さである必要がある。1バイト目がレスポンスコード
+     * @param[out] txBufLen 送信するデータの長さを格納する。
+     */
+    void listen_Request_System_Code(const uint8_t (&idm)[FELICA_IDM_SIZE],uint8_t *txBuf,uint16_t *txBufLen);
 };
 
 #endif /*FELICA_HPP*/
