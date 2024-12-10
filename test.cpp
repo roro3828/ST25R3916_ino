@@ -1,5 +1,6 @@
 #include<iostream>
-#include"felica2.hpp"
+#include"felica.hpp"
+#include"transport_ic.hpp"
 
 static const uint8_t idm[]={0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08};
 static const uint8_t pmm[]={0xAF,0xAF,0xAF,0xAF,0xAF,0xAF,0xAF,0xAF};
@@ -67,4 +68,25 @@ int main(){
         printf("%02X ",txBuf[i]);
     }
     printf("\n");
+
+    uint8_t td[]={0x11,0x22,0x33,0x44,0x15,0x21,0x0F,0x40,0x08,0x09,0xFF,0xFF,0x0C,0x0D,0x0E,0x0F};
+    TransportIC::usage_history_data* hd=(TransportIC::usage_history_data*)td;
+    printf("year:%d month:%d day:%d\n",(uint8_t)hd->date.year,(uint8_t)hd->date.month,(uint8_t)hd->date.day);
+    hd->device_type=0x11;
+    hd->usage_type=0x22;
+    hd->payment_type=0x33;
+    hd->enter_type=0x44;
+    hd->date.year=10;
+    hd->date.month=9;
+    hd->date.day=1;
+    hd->enter_station.line_code=0x11;
+    hd->enter_station.station_order_code=0x12;
+    hd->exit_station.line_code=0x21;
+    hd->exit_station.station_order_code=0x22;
+    hd->balance=0xABCD;
+    for(uint8_t i=0;i<16;i++){
+        printf("0x%02X,",td[i]);
+    }
+    printf("\n");
+
 }

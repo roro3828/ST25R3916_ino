@@ -1,3 +1,29 @@
+/**
+ * @attention
+ * MIT License
+ * 
+ * Copyright (c) 2024 ろ
+ * 
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+
 #ifndef FELICA_HPP
 #define FELICA_HPP
 
@@ -5,7 +31,47 @@
 #include<cstring>
 #include<cstdint>
 
+/***************************************************************
+ * utils
+ */
 
+/**
+ * リトルエンディアン16bit
+ */
+class _uint16_l{
+    uint8_t data[2];
+    public:
+    _uint16_l():data{0x00,0x00}{};
+    _uint16_l(uint16_t x):data{(uint8_t)(x&0xFF),(uint8_t)((x>>8)&0xFF)}{}
+    operator uint16_t()const{
+        uint16_t tmp=data[1];
+        tmp=data[0]+(tmp<<8);
+        return tmp;
+    }
+};
+/**
+ * ビッグエンディアン16bit
+ */
+class _uint16_b{
+    uint8_t data[2];
+    public:
+    _uint16_b():data{0x00,0x00}{};
+    _uint16_b(uint16_t x):data{(uint8_t)((x>>8)&0xFF),(uint8_t)(x&0xFF)}{}
+    operator uint16_t()const{
+        uint16_t tmp=data[0];
+        tmp=data[1]+(tmp<<8);
+        return tmp;
+    }
+};
+
+
+//デバッグ
+#define _DEBUG_
+
+using blockcount_t=uint16_t;
+
+
+#define FELICA_BLOCK_COUNT 128U
 /**
  * FelicaのIDmのサイズ
  */
@@ -15,10 +81,22 @@
  */
 #define FELICA_PMM_SIZE 8U
 /**
+ * イニシャライズ
+ */
+#define FELICA_NOT_INITIALIZED 0U
+#define FELICA_1ST_INITIALIZED 1U
+#define FELICA_2ND_INITIALIZED 2U
+
+#define FELICA_SYSTEM0_INDEX 0U
+
+
+/**
  * Felicaのシステムコードのサイズ
  */
 #define FELICA_SYSTEM_CODE_SIZE 2U
-using systemcode_t=uint16_t;
+using systemcode_t=_uint16_b;
+#define FELICA_SYSTEM_DATA_SIZE       2U
+#define FELICA_SYSTEM_MIN_BLOCK_COUNT (FELICA_SYSTEM_DATA_SIZE+1U)
 /**
  * Felicaのコマンドの長さ
  */
@@ -42,12 +120,15 @@ using areacode_t=uint16_t;
 #define FELICA_AREA_NUM_MASK                    0b1111111111000000
 #define FELICA_AREA_ATTR_MASK                   0b0000000000111111
 #define FELICA_AREA_ATTR_LEN_BIT                6U
-#define felica_Area_Code_to_Num(c)              ((c&FELICA_AREA_NUM_MASK)>>FELICA_AREA_ATTR_LEN_BIT)
 #define felica_Area_Code_to_Attr(c)             (c&FELICA_AREA_ATTR_MASK)
+//入力値がエリアコードかどうか
+#define felica_is_Area_Code(c)                  (((c&FELICA_AREA_ATTR_MASK)==FELICA_AREA_ATTR_CAN_CREATE_SUB)||((c&FELICA_AREA_ATTR_MASK)==FELICA_AREA_ATTR_CANNOT_CREATE_SUB))
 #define FELICA_AREA_ATTR_CAN_CREATE_SUB         0b000000
 #define FELICA_AREA_ATTR_CANNOT_CREATE_SUB      0b000001
 #define FELICA_AREA0_AREA_CODE                  0x0000
 #define FELICA_AREA0_END_SERVICE_CODE           0xFFFE
+#define FELICA_AREA_KEY_VER_NOT_SET             0xFFFF
+#define FELICA_AREA_DATA_SIZE                   1U
 
 /**
  * サービス用定数
@@ -57,18 +138,27 @@ using servicecode_t=uint16_t;
 #define FELICA_SERVICE_CODE_NUM_MASK            0b1111111111000000
 #define FELICA_SERVICE_CODE_ATTR_MASK           0b0000000000111111
 #define FELICA_SERVICE_ATTR_LEN_BIT             6U
-#define felica_Service_Code_to_Num(c)           ((c&FELICA_SERVICE_CODE_NUM_MASK)>>FELICA_SERVICE_ATTR_LEN_BIT)
 #define felica_Service_Code_to_Attr(c)          (c&FELICA_SERVICE_CODE_ATTR_MASK)
 #define FELICA_SERVICE_ATTR_AUTH_MASK           0b000001
 #define FELICA_SERVICE_ATTR_AUTH_NEED           0b000000
 #define FELICA_SERVICE_ATTR_AUTH_NO_NEED        0b000001
-#define felica_Service_is_Auth_Required(c)      ((c&FELICA_SERVICE_ATTR_AUTH_MASK)==FELICA_SERVICE_ATTR_AUTH_NEED)
+#define felica_Service_is_Auth_Required(c)      ((felica_Service_Code_to_Attr(c)&FELICA_SERVICE_ATTR_AUTH_MASK)==FELICA_SERVICE_ATTR_AUTH_NEED)
 #define FELICA_SERVICE_ATTR_ACCESS_MASK         0b010010
 #define FELICA_SERVICE_ATTR_ACCESS_RW           0b000000
 #define FELICA_SERVICE_ATTR_ACCESS_R            0b000010
-#define FELICA_SERVICE_ATTR_TYPE_MASK           0b001100
+#define FELICA_SERVICE_ATTR_TYPE_MASK           0b111100
 #define FELICA_SERVICE_ATTR_TYPE_RANDOM         0b001000
 #define FELICA_SERVICE_ATTR_TYPE_CYCLIC         0b001100
+#define felica_is_Service_Cyclic(c)             ((c&FELICA_SERVICE_ATTR_TYPE_MASK)==FELICA_SERVICE_ATTR_TYPE_CYCLIC)
+#define FELICA_SERVICE_PURSE_TYPE_MASK          0b110000
+#define felica_is_Service_Code(c)               (!felica_is_Area_Code(c))
+//サービスコードがパースサービスかどうか
+#define felica_Service_is_Purse_service(c)      (!(((felica_Service_Code_to_Attr(c)&FELICA_SERVICE_ATTR_TYPE_MASK)==FELICA_SERVICE_ATTR_TYPE_RANDOM)||((felica_Service_Code_to_Attr(c)&FELICA_SERVICE_ATTR_TYPE_MASK)==FELICA_SERVICE_ATTR_TYPE_CYCLIC)))
+#define felica_Service_Code_to_Num(c)           (felica_Service_is_Purse_service(c)?(FELICA_SERVICE_CODE_NUM_MASK|FELICA_SERVICE_PURSE_TYPE_MASK)&c:(FELICA_SERVICE_CODE_NUM_MASK|FELICA_SERVICE_ATTR_TYPE_MASK)&c)
+#define FELICA_SERVICE_KEY_VER_NOT_SET          0xFFFF
+#define FELICA_SERVICE_DATA_SIZE                1U
+
+#define FELICA_BLOCK_METADATA_SIZE              1U
 
 /**
  * Request Service用定数
@@ -122,6 +212,9 @@ using servicecode_t=uint16_t;
 #define FELICA_BLOCK_LIST_ELEMENT_LEN_BIT 1U
 #define FELICA_BLOCK_LIST_ELEMENT_ACCESS_MODE_BIT 3U
 #define FELICA_BLOCK_LIST_ELEMENT_SERVICE_CODE_LIST_ORDER_BIT 4U
+#define FELICA_BLOCK_LIST_ELEMENT_SHORT 1U
+#define FELICA_BLOCK_LIST_ELEMENT_LONG 0U
+
 class BlockListElement{
     public:
     const uint8_t len:FELICA_BLOCK_LIST_ELEMENT_LEN_BIT;
@@ -136,230 +229,132 @@ class BlockListElement{
      * @param[in] buf
      */
     BlockListElement(const uint8_t *buf);
-
     /**
      * @brief ブロックリストエレメントを配列に格納する
      * @param[out] buf 格納する配列の先頭ポインタ FELICA_BLOCK_LIST_ELEMENT_MAX_SIZE以上の長さが必要
      * @return 格納したブロックリストエレメントの長さ
      */
     uint8_t set_element_to_buf(uint8_t *buf)const;
-};
-enum FelicaReturnCode{
-    SUCCESS,
-    ERROR,
-    NO_SPACE,
-    OUT_OF_RANGE
+    uint8_t get_element_len()const;
 };
 
-class FelicaBlocks{
-    public:
-    uint16_t cyclic_index;
-    uint8_t **blocks;
-    const uint16_t block_count;
 
-    FelicaBlocks(const uint16_t &block_count);
-    ~FelicaBlocks()noexcept;
-};
-
-class FelicaService{
-    const bool original;
-    public:
-    FelicaBlocks * const blocks;
-    const servicecode_t service_code;
-
-    //この辺りは情報がないので詳細は不明 とりあえずてきとうな値を設定
-    const uint8_t service_key=0xFF;
-    //鍵バージョンは鍵の識別用IDっぽいけど鍵とか使えないのでてきとう
-    uint16_t service_key_ver=0xFFFF;
-
-    FelicaService(const servicecode_t &service_code,const uint16_t &block_count);
-    FelicaService(const servicecode_t &service_code,FelicaBlocks *blocks);
-    ~FelicaService()noexcept;
-
-    /**
-     * @brief 指定した番号のブロックを読む
-     * @param[in] block_num ブロック番号
-     * @param[out] data ブロックから読みだされた16バイトのデータ
-     * @return SUCCESS:正常に読めた場合
-     * @return ERROR:ブロック番号がブロック数を超えていた場合
-     */
-    FelicaReturnCode read_block(const uint16_t &block_num,uint8_t *data);
-    /**
-     * @brief 指定した番号のブロックにデータを書き込む
-     * @param[in] block_num ブロック番号
-     * @param[out] data ブロックに書き込む16バイトのデータ
-     * @return SUCCESS:正常に読めた場合
-     * @return ERROR:ブロック番号がブロック数を超えていた場合
-     */
-    FelicaReturnCode write_block(const uint16_t &block_num,const uint8_t *data);
-
-    /**
-     * @brief アクセス制限を無視して指定した番号のブロックを読む
-     * @param[in] block_num ブロック番号
-     * @param[out] data ブロックから読みだされた16バイトのデータ
-     * @return SUCCESS:正常に読めた場合
-     * @return ERROR:ブロック番号がブロック数を超えていた場合
-     */
-    FelicaReturnCode read_block_force(const uint16_t &block_num,uint8_t *data);
-    /**
-     * @brief アクセス制限を無視して指定した番号のブロックにデータを書き込む
-     * @param[in] block_num ブロック番号
-     * @param[out] data ブロックに書き込む16バイトのデータ
-     * @return SUCCESS:正常に読めた場合
-     * @return ERROR:ブロック番号がブロック数を超えていた場合
-     */
-    FelicaReturnCode write_block_force(const uint16_t &block_num,const uint8_t *data);
-};
-
-class FelicaArea{
-    FelicaService *services[FELICA_MAX_SERVICE_COUNT];
-    FelicaArea *areas[FELICA_MAX_AREA_COUNT];
-    public:
-    const areacode_t areacode;
-    const servicecode_t end_servicecode;
-    //この辺りは情報がないので詳細は不明 とりあえずてきとうな値を設定
-    const uint8_t area_key=0xFF;
-    //鍵バージョンは鍵の識別用IDっぽいけど鍵とか使えないのでてきとう
-    uint16_t area_key_ver=0xFFFF;
-
-    FelicaArea(const areacode_t &areacode,const servicecode_t &end_servicecode);
-    ~FelicaArea()noexcept;
-
-    /**
-     * @brief エリアコードからエリアを取得する
-     * @param[in] areacode
-     * @param[out] area エリアポインタのアドレス エリアのアドレスが格納される 見つからなかった場合NULLが格納される NULLでも可
-     * @return SUCCESS:エリアが見つかった場合
-     * @return ERROR:エリアが見つからなかった場合
-     */
-    FelicaReturnCode get_area(const areacode_t &areacode,FelicaArea const **area)const;
-    /**
-     * @brief エリアを追加する
-     * @param[in] areacode
-     * @param[in] end_servicecode
-     * @return SUCCESS:エリアを追加できた場合
-     * @return ERROR:エリアコードがすでに存在していた場合や作成不可なエリアコードの場合
-     * @return NO_SPACE:領域が足りない場合
-     * @return OUT_OF_RANGE:エリアコードが登録可能な範囲外だった場合
-     */
-    FelicaReturnCode add_area(const areacode_t &areacode,const servicecode_t &end_servicecode);
-    /**
-     * @brief サービスコードからサービスを取得する
-     * @param[in] service_code
-     * @param[out] service サービスポインタのアドレス サービスのアドレスが格納される 見つからなかった場合NULLが格納される NULLでも可
-     * @return SUCCESS:サービスが見つかった場合
-     * @return ERROR:サービスが見つからなかった場合
-     */
-    FelicaReturnCode get_service(const servicecode_t &service_code,FelicaService **service)const;
-
-    /**
-     * @brief エリアにサービスを追加する
-     * @param[in] service_code 追加するサービスコード
-     * @return SUCCESS:サービスを追加できた場合
-     * @return ERROR:サービスコードがすでに存在していた場合
-     * @return NO_SPACE:領域が足りない場合
-     * @return OUT_OF_RANGE:サービスコードが登録可能な範囲外だった場合
-     */
-    FelicaReturnCode add_service(const servicecode_t &service_code,const uint16_t &block_count);
-};
-
-class FelicaSystem{
-    FelicaArea area0;
-    public:
-    const systemcode_t system_code;
+struct FelicaSystem{
+    systemcode_t systemcode;
+    uint16_t system_key_ver;
+    uint16_t issuer_id;
+    blockcount_t system_block_count;
     uint8_t idm[FELICA_IDM_SIZE];
+    //割り当て済みのエリア/サービス数
+    blockcount_t area_service_data_used_count;
+    //割り当て済みブロック数
+    blockcount_t block_used_count;
+};
 
-    FelicaSystem(const uint16_t &system_code,const uint8_t (&idm)[FELICA_IDM_SIZE]);
-    ~FelicaSystem()noexcept;
-
-    /**
-     * @brief エリアコードからエリアを取得する
-     * @param[in] areacode
-     * @param[out] area エリアポインタのアドレス エリアのアドレスが格納される 見つからなかった場合NULLが格納される NULLでも可
-     * @return SUCCESS:エリアが見つかった場合
-     * @return ERROR:エリアが見つからなかった場合
-     */
-    FelicaReturnCode get_area(const areacode_t &areacode,FelicaArea const **area)const;
-    /**
-     * @brief エリアを追加する
-     * @param[in] areacode
-     * @param[in] end_servicecode
-     * @return SUCCESS:エリアを追加できた場合
-     * @return ERROR:エリアコードがすでに存在していた場合や作成不可なエリアコードの場合
-     * @return NO_SPACE:領域が足りない場合
-     */
-    FelicaReturnCode add_area(const areacode_t &areacode,const servicecode_t &end_servicecode);
-    /**
-     * @brief サービスコードからサービスを取得する
-     * @param[in] service_code
-     * @param[out] service サービスポインタのアドレス サービスのアドレスが格納される 見つからなかった場合NULLが格納される NULLでも可
-     * @return SUCCESS:サービスが見つかった場合
-     * @return ERROR:サービスが見つからなかった場合
-     */
-    FelicaReturnCode get_service(const servicecode_t &service_code,FelicaService **service)const;
-
-    /**
-     * @brief システムにサービスを追加する
-     * @param[in] service_code 追加するサービスコード
-     * @return SUCCESS:サービスを追加できた場合
-     * @return ERROR:サービスコードがすでに存在していた場合
-     * @return NO_SPACE:領域が足りない場合
-     */
-    FelicaReturnCode add_service(const servicecode_t &service_code,const uint16_t &block_count);
+struct FelicaArea{
+    areacode_t areacode;
+    servicecode_t end_servicecode;
+    uint16_t area_key_ver;
+    areacode_t parent_code;
+};
+struct FelicaService{
+    servicecode_t servicecode;
+    uint16_t service_key_ver;
+    //サービスが管理するブロック数
+    blockcount_t service_block_count;
+    //サービスが管理するブロックの場所
+    blockcount_t service_block_index;
+    //サービが参照するサービスの場所
+    blockcount_t reference_index;
+    areacode_t parent_code;
+};
+struct FelicaBlockData{
+    blockcount_t cyclic_index;
 };
 
 class Felica{
-    /**
-     * システムのポインタ配列
-     */
-    FelicaSystem *systems[FELICA_MAX_SYSTEM_COUNT];
+    uint8_t block[FELICA_BLOCK_COUNT][FELICA_BLOCK_SIZE];
     uint8_t current_mode=0x00;
-    FelicaSystem *current_system=NULL;
+    FelicaSystem *current_system;
+    uint8_t pmm[FELICA_PMM_SIZE];
+    uint8_t initialized=0x00;
 
-    /**
-     * @brief IDmを持つシステムに切り替える 現在のシステムのIDmの場合切り替えない
-     * @param[in] idm
-     * @return true:切り替えが成功した場合
-     * @return false:IDmを持つシステムが存在しなかった場合
-     */
-    bool switch_system(const uint8_t (&idm)[FELICA_IDM_SIZE]);
+
+    FelicaService *get_service(const servicecode_t &servicecode);
+    FelicaArea *get_area(const areacode_t &areacode);
 
     public:
-    /**
-     * PMm
-     */
-    uint8_t pmm[FELICA_PMM_SIZE];
 
+    //デバッグ用
+    #ifdef _DEBUG_
+        void show_block();
+    #endif//_DEBUG_
 
-    Felica(const uint8_t (&pmm)[FELICA_PMM_SIZE]);
-    ~Felica() noexcept;
-    /**
-     * @brief システムコードからシステムを取得する
-     * @param[in] system_code
-     * @param[out] system システムポインタのアドレス システムのアドレスが返される 見つからなかった場合NULLが格納される NULLでも可
-     * @return SUCCESS:システムが見つかった場合
-     * @return ERROR:システムが見つからなかった場合
-     */
-    FelicaReturnCode get_system(const systemcode_t &system_code,FelicaSystem **system)const;
-    /**
-     * @brief IDmからシステムを取得する
-     * @param[in] idm
-     * @param[out] system システムポインタのアドレス システムのアドレスが返される 見つからなかった場合NULLが格納される NULLでも可
-     * @return SUCCESS:システムが見つかった場合
-     * @return ERROR:システムが見つからなかった場合
-     */
-    FelicaReturnCode get_system_by_idm(const uint8_t (&idm)[FELICA_IDM_SIZE],FelicaSystem **system)const;
-    /**
-     * @brief Felicaにシステムを追加する
-     * @param[in] system_code 追加するシステムコード
-     * @param[in] idm 追加するIDm
-     * @return SUCCESS:システムを追加できた場合
-     * @return ERROR:システムコードかIDmがすでに存在していた場合
-     * @return NO_SPACE:領域が足りない場合
-     */
-    FelicaReturnCode add_system(const systemcode_t &system_code,const uint8_t (&idm)[FELICA_IDM_SIZE]);
+    Felica(const uint8_t (&pmm)[FELICA_PMM_SIZE],const systemcode_t &systemcode,const uint8_t (&idm)[FELICA_IDM_SIZE]);
 
     /**
+     * @brief idmの比較
+     * @param idm1
+     * @param idm2
+     * @return true:idmが等しいとき
+     */
+    static bool compare_idm(const uint8_t (&idm1)[FELICA_IDM_SIZE],const uint8_t (&idm2)[FELICA_IDM_SIZE]);
+
+    /**
+     * @brief pmmを取得
+     * @param[out] pmm
+     */
+    void get_pmm(uint8_t (&pmm)[FELICA_PMM_SIZE]);
+
+    FelicaSystem* get_system(const uint8_t (&idm)[FELICA_IDM_SIZE])const;
+    FelicaSystem* get_system(const systemcode_t &systemcode)const;
+
+    /**
+     * @brief 現在のシステムを切り替える 失敗した場合NULLが返される
+     */
+    FelicaSystem* switch_system(const uint8_t (&idm)[FELICA_IDM_SIZE]);
+    /**
+     * @brief 現在のシステムを切り替える 失敗した場合NULLが返される
+     */
+    FelicaSystem* switch_system(const systemcode_t &systemcode);
+
+    /**
+     * @brief システム0を分割して新しいシステムを作る
+     */
+    FelicaSystem* separate_system(const blockcount_t &new_system_size,const systemcode_t &systemcode,const uint8_t (&idm)[FELICA_IDM_SIZE]);
+    FelicaSystem* separate_system(const blockcount_t &new_system_size,const systemcode_t &systemcode);
+
+    /**
+     * @brief 1次初期化 システムを確定させる これ以降システムを分割できない
+     */
+    void initialize_1st();
+
+    /**
+     * @brief エリアを追加
+     */
+    FelicaArea* add_area(const areacode_t &areacode,const servicecode_t &end_servicecode,const uint16_t &area_key_ver);
+    /**
+     * @brief サービスを追加
+     */
+    FelicaService* add_service(const blockcount_t &new_service_size,const servicecode_t &servicecode,const uint16_t &service_key_ver);
+
+    /**
+     * @brief 2次初期化 サービス/エリアを確定させる これ以降サービスやエリアを追加できない
+     */
+    void initialize_2nd();
+
+    /**
+     * @brief 指定したサービスの指定したブロックにデータを書き込む
+     */
+    bool write(const servicecode_t &servicecode,const blockcount_t &blocknum,const uint8_t (&data)[FELICA_BLOCK_SIZE]);
+    bool write_force(const servicecode_t &servicecode,const blockcount_t &blocknum,const uint8_t (&data)[FELICA_BLOCK_SIZE]);
+    /**
+     * @brief 指定したサービスの指定したブロックのデータを読み込む
+     */
+    bool read(const servicecode_t &servicecode,const blockcount_t &blocknum,uint8_t (&data)[FELICA_BLOCK_SIZE]);
+    bool read_force(const servicecode_t &servicecode,const blockcount_t &blocknum,uint8_t (&data)[FELICA_BLOCK_SIZE]);
+
+        /**
      * @brief Felicaのカードエミュレーションを実行する
      * @param[in] rxBuf 受信したデータ 1バイト目がコマンドコード
      * @param[in] rxBufLen 受信したデータの長さ
@@ -400,7 +395,7 @@ class Felica{
      * @param[out] txBuf 送信するデータを格納する 配列は FELICA_TX_BUF_SIZE 以上の長さである必要がある。1バイト目がレスポンスコード
      * @param[out] txBufLen 送信するデータの長さを格納する。
      */
-    void listen_Read_Without_Encryption(const uint8_t (&idm)[FELICA_IDM_SIZE],const uint8_t &service_count,const uint8_t *service_code_list,const uint8_t &block_count,const BlockListElement **block_list,uint8_t *txBuf,uint16_t *txBufLen);
+    void listen_Read_Without_Encryption(const uint8_t (&idm)[FELICA_IDM_SIZE],const uint8_t &service_count,const uint8_t *service_code_list,const uint8_t &block_count,const uint8_t *block_list,uint8_t *txBuf,uint16_t *txBufLen);
 
     /**
      * @brief Felicaのカードエミュレーション Request System Codeを実行する
@@ -410,9 +405,5 @@ class Felica{
      */
     void listen_Request_System_Code(const uint8_t (&idm)[FELICA_IDM_SIZE],uint8_t *txBuf,uint16_t *txBufLen);
 };
-
-
-
-bool compare_idm(const uint8_t (&idm1)[FELICA_IDM_SIZE],const uint8_t (&idm2)[FELICA_IDM_SIZE]);
 
 #endif /*FELICA_HPP*/
