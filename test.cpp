@@ -60,7 +60,7 @@ int main(){
     }
     printf("\n");
 
-    fe.listen_Read_Without_Encryption(idm,1,rxBuf,2,&rxBuf[2],txBuf,&txBufLen);
+    fe.listen_Read_Without_Encryption(idm,1,(_uint16_l*)rxBuf,2,&rxBuf[2],txBuf,&txBufLen);
     //fe.listen_Request_System_Code(idm,txBuf,&txBufLen);
 
     printf("tx:");
@@ -86,6 +86,16 @@ int main(){
     hd->balance=0xABCD;
     for(uint8_t i=0;i<16;i++){
         printf("0x%02X,",td[i]);
+    }
+    printf("\n");
+
+    Felica::FelicaCMD felicacmd;
+    _uint16_l ul[]={0x11ff,0xAABB};
+    felicacmd.request_service.setup(idm,2,ul);
+
+    printf("cmd:");
+    for(uint8_t i=0;i<sizeof(felicacmd);i++){
+        printf("0x%02X,",((uint8_t*)&felicacmd)[i]);
     }
     printf("\n");
 

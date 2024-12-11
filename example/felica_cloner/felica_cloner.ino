@@ -4,10 +4,6 @@
 #include "rfal_platform.h"
 #include "rfal_rf.h"
 #include "rfal_nfc.h"
-
-#define EXAMPLE_NFCA_DEVICES     10
-
-
 #include <Arduino.h>
 
 #define EMULATE_STATE_NOTINIT 0
@@ -24,19 +20,21 @@ static uint8_t ceNFCA_SEL_RES     = 0x20;                     /* SEL_RES / SAK  
 //static uint8_t ceNFCA_SEL_RES     = 0x08;                     /* SEL_RES / SAK                             *///mifare classic
 static uint8_t NFCID3[] = {0x01, 0xFE, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A};
 static uint8_t GB[] = {0x46, 0x66, 0x6d, 0x01, 0x01, 0x11, 0x02, 0x02, 0x07, 0x80, 0x03, 0x02, 0x00, 0x03, 0x04, 0x01, 0x32, 0x07, 0x01, 0x03};
-static uint8_t felica_idm[FELICA_IDM_SIZE];
-static uint8_t felica_pmm[FELICA_PMM_SIZE];
 static uint8_t ceNFCF_SC[]         = {0x00, 0x03};
 static uint8_t ceNFCF_SENSF_RES[]  = {0x01,                                                   /* SENSF_RES                                */
                                     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,             /* NFCID2                                   */
                                     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,             /* PAD0, PAD01, MRTIcheck, MRTIupdate, PAD2 */
-                                    0x00, 0x00 };        
-uint8_t globalCommProtectCnt;
+                                    0x00, 0x00 };
+
+
+static uint8_t felica_idm[FELICA_IDM_SIZE];
+static uint8_t felica_pmm[FELICA_PMM_SIZE];
+
+
+
 rfalNfcDiscoverParam discoverparam;
 
 uint8_t state=0;
-
-static Felica *felica;
 
 bool nfcinit(){
     ReturnCode err=rfalNfcInitialize();

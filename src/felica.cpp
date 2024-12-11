@@ -507,7 +507,7 @@ void Felica::listen(const uint8_t *rxBuf,const uint16_t rxBufLen,uint8_t *txBuf,
             }
             uint8_t idm[FELICA_IDM_SIZE];
             memcpy(idm,&rxBuf[FELICA_CMD_SIZE],FELICA_IDM_SIZE);
-            listen_Request_Service(idm,node_count,&rxBuf[FELICA_CMD_SIZE+FELICA_IDM_SIZE+1],txBuf,txBufLen);
+            listen_Request_Service(idm,node_count,(_uint16_l*)&rxBuf[FELICA_CMD_SIZE+FELICA_IDM_SIZE+1],txBuf,txBufLen);
         }
         break;
         case FELICA_REQUEST_RESPONSE_CMD_CODE:{
@@ -530,7 +530,7 @@ void Felica::listen(const uint8_t *rxBuf,const uint16_t rxBufLen,uint8_t *txBuf,
             uint8_t idm[FELICA_IDM_SIZE];
             memcpy(idm,&rxBuf[FELICA_CMD_SIZE],FELICA_IDM_SIZE);
 
-            listen_Read_Without_Encryption(idm,service_count,&rxBuf[FELICA_CMD_SIZE+FELICA_IDM_SIZE+1],block_count,&rxBuf[FELICA_CMD_SIZE+FELICA_IDM_SIZE+2+FELICA_SERVICE_CODE_SIZE*service_count],txBuf,txBufLen);
+            listen_Read_Without_Encryption(idm,service_count,(_uint16_l*)&rxBuf[FELICA_CMD_SIZE+FELICA_IDM_SIZE+1],block_count,&rxBuf[FELICA_CMD_SIZE+FELICA_IDM_SIZE+2+FELICA_SERVICE_CODE_SIZE*service_count],txBuf,txBufLen);
         }
         break;
         case FELICA_REQUEST_SYSTEM_CODE_CMD_CODE:{
@@ -579,7 +579,7 @@ void Felica::listen_Polling(const systemcode_t &system_code,const uint8_t &reque
         break;
     }
 }
-void Felica::listen_Request_Service(const uint8_t (&idm)[FELICA_IDM_SIZE],const uint8_t &node_count,const uint8_t *node_code_list,uint8_t *txBuf,uint16_t *txBufLen){
+void Felica::listen_Request_Service(const uint8_t (&idm)[FELICA_IDM_SIZE],const uint8_t &node_count,const _uint16_l *node_code_list,uint8_t *txBuf,uint16_t *txBufLen){
     *txBufLen=0;
     if(this->initialized!=FELICA_2ND_INITIALIZED){
         return;
@@ -601,7 +601,7 @@ void Felica::listen_Request_Service(const uint8_t (&idm)[FELICA_IDM_SIZE],const 
     *txBufLen=FELICA_CMD_SIZE+FELICA_IDM_SIZE+1+2*node_count;
 
     for(uint8_t i=0;i<node_count;i++){
-        const _uint16_l *node_code=(_uint16_l*)&node_code_list[2*i];
+        const _uint16_l *node_code=&node_code_list[i];
         _uint16_l *node_code_tx=(_uint16_l*)&txBuf[FELICA_CMD_SIZE+FELICA_IDM_SIZE+1+2*i];
 
         //与えられたノードコードがサービスコードがエリアコードか判定
@@ -650,7 +650,7 @@ void Felica::listen_Request_Response(const uint8_t (&idm)[FELICA_IDM_SIZE],uint8
     memcpy(&txBuf[FELICA_CMD_SIZE],this->current_system->idm,FELICA_IDM_SIZE);
     txBuf[FELICA_CMD_SIZE+FELICA_IDM_SIZE]=this->current_mode;
 }
-void Felica::listen_Read_Without_Encryption(const uint8_t (&idm)[FELICA_IDM_SIZE],const uint8_t &service_count,const uint8_t *service_code_list,const uint8_t &block_count,const uint8_t *block_list,uint8_t *txBuf,uint16_t *txBufLen){
+void Felica::listen_Read_Without_Encryption(const uint8_t (&idm)[FELICA_IDM_SIZE],const uint8_t &service_count,const _uint16_l *service_code_list,const uint8_t &block_count,const uint8_t *block_list,uint8_t *txBuf,uint16_t *txBufLen){
     *txBufLen=0;
     if(this->initialized!=FELICA_2ND_INITIALIZED){
         return;
@@ -690,7 +690,7 @@ void Felica::listen_Read_Without_Encryption(const uint8_t (&idm)[FELICA_IDM_SIZE
         }
 
         //サービスコードはリトルエンディアン
-        const servicecode_t service_code=*((_uint16_l*)&service_code_list[2*element.service_code_list_order]);
+        const servicecode_t service_code=(servicecode_t)service_code_list[element.service_code_list_order];
 
         //ブロックの読み込みに失敗した場合終了
         if(!this->read(service_code,element.block_num,block_data[i])){
@@ -757,6 +757,40 @@ uint8_t BlockListElement::set_element_to_buf(uint8_t *buf)const{
 uint8_t BlockListElement::get_element_len()const{
     return (this->len==FELICA_BLOCK_LIST_ELEMENT_SHORT)?FELICA_BLOCK_LIST_ELEMENT_MIN_SIZE:FELICA_BLOCK_LIST_ELEMENT_MAX_SIZE;
 }
+
+/**********************************************************************************************
+ * Felicaコマンド
+ **********************************************************************************************/
+Felica::FelicaCMD::FelicaCMD(){}
+
+void Felica::FelicaCMD::Polling::setup(const systemcode_t &systemcode,const uint8_t &requestcode,const uint8_t &timeslot){
+    this->cmd=FELICA_POLLING_CMD_CODE;
+    this->systemcode=systemcode;
+    this->requestcode=requestcode;
+    this->timeslot=timeslot;
+}
+uint8_t Felica::FelicaCMD::Polling::get_size()const{
+    return FELICA_CMD_SIZE+FELICA_SYSTEM_CODE_SIZE+FELICA_POLLING_REQUEST_CODE_SIZE+FELICA_POLLING_TIME_SLOT_SIZE;
+}
+
+void Felica::FelicaCMD::Request_Service::setup(const uint8_t (&idm)[FELICA_IDM_SIZE],const uint8_t &node_count,const _uint16_l *node_list){
+    this->cmd=FELICA_REQUEST_SERVICE_CMD_CODE;
+    memcpy(this->idm,idm,FELICA_IDM_SIZE);
+    this->node_count=node_count;
+    memcpy(this->node_list,node_list,node_count*2);
+}
+uint8_t Felica::FelicaCMD::Request_Service::get_size()const{
+    return FELICA_CMD_SIZE+FELICA_IDM_SIZE+1+this->node_count;
+}
+
+void Felica::FelicaCMD::Request_Response::setup(const uint8_t (&idm)[FELICA_IDM_SIZE]){
+    this->cmd=FELICA_REQUEST_RESPONSE_CMD_CODE;
+    memcpy(this->idm,idm,FELICA_IDM_SIZE);
+}
+uint8_t Felica::FelicaCMD::Request_Response::get_size()const{
+    return FELICA_CMD_SIZE+FELICA_IDM_SIZE;
+}
+
 
 /**********************************************************************************************
  * デバッグ

@@ -5,6 +5,12 @@
 
 #define TRANSPORT_IC_SYSTEM_CODE (systemcode_t)0x0003
 #define TRANSPORT_IC_USAGE_HISTORY_SERVICE_CODE (servicecode_t)0x090F
+#define TRANSPORT_IC_MONTH_MIN      1
+#define TRANSPORT_IC_MONTH_MAX      12
+#define TRANSPORT_IC_DAY_MIN        1
+#define TRANSPORT_IC_DAY_MAX        31
+#define to_valid_month(m)   (((m+TRANSPORT_IC_MONTH_MAX-TRANSPORT_IC_MONTH_MIN)%(TRANSPORT_IC_MONTH_MAX-TRANSPORT_IC_MONTH_MIN+1))+TRANSPORT_IC_MONTH_MIN)
+#define to_valid_day(d)     (((d+TRANSPORT_IC_DAY_MAX-TRANSPORT_IC_DAY_MIN)%(TRANSPORT_IC_DAY_MAX-TRANSPORT_IC_DAY_MIN+1))+TRANSPORT_IC_DAY_MIN)
 
 class TransportIC{
     /**
@@ -25,6 +31,7 @@ class TransportIC{
     };
     //日付データ
     union Date{
+        //年
         struct{
             private:
             uint8_t data[2];
@@ -36,24 +43,26 @@ class TransportIC{
                 return (this->data[0]>>1);
             }
         }year;
+        //月 1~12のみ有効
         struct{
             private:
             uint8_t data[2];
             public:
             void operator=(const uint8_t& month){
-                this->data[0]=((month>>3)&0b1)+(this->data[0]&0b11111110);
-                this->data[1]=((month<<5)&0b11100000)+(this->data[1]&0b00011111);
+                this->data[0]=((to_valid_month(month)>>3)&0b1)+(this->data[0]&0b11111110);
+                this->data[1]=((to_valid_month(month)<<5)&0b11100000)+(this->data[1]&0b00011111);
             }
             operator uint8_t()const{
                 return ((this->data[0]<<3)&0b1000)+((this->data[1]>>5)&0b111);
             }
         }month;
+        //日 1~31のみ有効
         struct{
             private:
             uint8_t data[2];
             public:
             void operator=(const uint8_t& day){
-                this->data[1]=(day&0b11111)+(this->data[1]&0b11100000);
+                this->data[1]=(to_valid_day(day)&0b11111)+(this->data[1]&0b11100000);
             }
             operator uint8_t()const{
                 return (this->data[1]&0b00011111);
@@ -106,7 +115,7 @@ class TransportIC{
     struct Station_code{
         //路線コード
         uint8_t line_code;
-        //絵基準コード
+        //駅順コード
         uint8_t station_order_code;
     };
 

@@ -165,6 +165,8 @@ using servicecode_t=uint16_t;
  */
 #define FELICA_REQUEST_SERVICE_CMD_CODE 0x02
 #define FELICA_REQUEST_SERVICE_RES_CODE 0x03
+#define FELICA_REQUEST_SERVICE_NODE_MIN 1U
+#define FELICA_REQUEST_SERVICE_NODE_MAX 32U
 #define FELICA_BLOCK_SIZE 16U
 
 /**
@@ -354,7 +356,44 @@ class Felica{
     bool read(const servicecode_t &servicecode,const blockcount_t &blocknum,uint8_t (&data)[FELICA_BLOCK_SIZE]);
     bool read_force(const servicecode_t &servicecode,const blockcount_t &blocknum,uint8_t (&data)[FELICA_BLOCK_SIZE]);
 
-        /**
+    /**
+     * @brief Felicaコマンド構造体
+     */
+    union FelicaCMD{
+        class Polling{
+            uint8_t cmd;
+            public:
+            _uint16_b systemcode;
+            //リクエストコード 0x00:要求梨 0x01:システムコード要求
+            uint8_t requestcode;
+            uint8_t timeslot;
+            void setup(const systemcode_t &systemcode,const uint8_t &requestcode,const uint8_t &timeslot);
+            //コマンドのサイズを取得
+            uint8_t get_size()const;
+        }polling;
+        class Request_Service{
+            uint8_t cmd;
+            public:
+            uint8_t idm[FELICA_IDM_SIZE];
+            uint8_t node_count;
+            _uint16_l node_list[FELICA_REQUEST_SERVICE_NODE_MAX];
+            void setup(const uint8_t (&idm)[FELICA_IDM_SIZE],const uint8_t &node_count,const _uint16_l *node_list);
+            //コマンドのサイズを取得
+            uint8_t get_size()const;
+        }request_service;
+        class Request_Response{
+            uint8_t cmd;
+            public:
+            uint8_t idm[FELICA_IDM_SIZE];
+            void setup(const uint8_t (&idm)[FELICA_IDM_SIZE]);
+            //コマンドのサイズを取得
+            uint8_t get_size()const;
+        }request_response;
+
+        FelicaCMD();
+    };
+
+    /**
      * @brief Felicaのカードエミュレーションを実行する
      * @param[in] rxBuf 受信したデータ 1バイト目がコマンドコード
      * @param[in] rxBufLen 受信したデータの長さ
@@ -373,11 +412,11 @@ class Felica{
      * @brief Felicaのカードエミュレーション Request Serviceを実行する
      * @param[in] idm IDm
      * @param[in] node_count ノード数 1以上32以下
-     * @param[in] node_code_list コードの配列 長さは2*node_count
+     * @param[in] node_code_list コードの配列 リトルエンディアン
      * @param[out] txBuf 送信するデータを格納する 配列は FELICA_TX_BUF_SIZE 以上の長さである必要がある。1バイト目がレスポンスコード
      * @param[out] txBufLen 送信するデータの長さを格納する。
      */
-    void listen_Request_Service(const uint8_t (&idm)[FELICA_IDM_SIZE],const uint8_t &node_count,const uint8_t *node_code_list,uint8_t *txBuf,uint16_t *txBufLen);
+    void listen_Request_Service(const uint8_t (&idm)[FELICA_IDM_SIZE],const uint8_t &node_count,const _uint16_l *node_code_list,uint8_t *txBuf,uint16_t *txBufLen);
     /**
      * @brief Felicaのカードエミュレーション Request Responseを実行する
      * @param[in] idm IDm
@@ -390,12 +429,12 @@ class Felica{
      * @brief Felicaのカードエミュレーション Read Without Encryptionを実行する
      * @param[in] idm IDm
      * @param[in] service_count サービス数 1以上32以下
-     * @param[in] service_code_list サービスコードリスト リトルエンディアンで記述する 長さは2*service_count
+     * @param[in] service_code_list サービスコードリスト リトルエンディアンで記述する
      * @param[in] block_count ブロック数
      * @param[out] txBuf 送信するデータを格納する 配列は FELICA_TX_BUF_SIZE 以上の長さである必要がある。1バイト目がレスポンスコード
      * @param[out] txBufLen 送信するデータの長さを格納する。
      */
-    void listen_Read_Without_Encryption(const uint8_t (&idm)[FELICA_IDM_SIZE],const uint8_t &service_count,const uint8_t *service_code_list,const uint8_t &block_count,const uint8_t *block_list,uint8_t *txBuf,uint16_t *txBufLen);
+    void listen_Read_Without_Encryption(const uint8_t (&idm)[FELICA_IDM_SIZE],const uint8_t &service_count,const _uint16_l *service_code_list,const uint8_t &block_count,const uint8_t *block_list,uint8_t *txBuf,uint16_t *txBufLen);
 
     /**
      * @brief Felicaのカードエミュレーション Request System Codeを実行する
