@@ -6,20 +6,13 @@
 #include "rfal_nfc.h"
 #include <Arduino.h>
 
+#include"felica.hpp"
+#include"transport_ic.hpp"
+
+
 #define EMULATE_STATE_NOTINIT 0
 #define EMULATE_STATE_START_DISCOVERY 1
 #define EMULATE_STATE_DISCOVERY 2
-
-#include"felica.hpp"
-
-static uint8_t ceNFCA_NFCID[]     = {0x00,0x12,0x34,0x67};    /* =_STM, 5F 53 54 4D NFCID1 / UID (4 bytes) */
-static uint8_t ceNFCA_SENS_RES[]  = {0x04, 0x00};             /* SENS_RES / ATQA for 4-byte UID            */
-
-
-static uint8_t ceNFCA_SEL_RES     = 0x20;                     /* SEL_RES / SAK                             *///iso dep
-//static uint8_t ceNFCA_SEL_RES     = 0x08;                     /* SEL_RES / SAK                             *///mifare classic
-static uint8_t NFCID3[] = {0x01, 0xFE, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A};
-static uint8_t GB[] = {0x46, 0x66, 0x6d, 0x01, 0x01, 0x11, 0x02, 0x02, 0x07, 0x80, 0x03, 0x02, 0x00, 0x03, 0x04, 0x01, 0x32, 0x07, 0x01, 0x03};
 static uint8_t ceNFCF_SC[]         = {0x00, 0x03};
 static uint8_t ceNFCF_SENSF_RES[]  = {0x01,                                                   /* SENSF_RES                                */
                                     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,             /* NFCID2                                   */
@@ -30,44 +23,22 @@ static uint8_t ceNFCF_SENSF_RES[]  = {0x01,                                     
 static uint8_t felica_idm[FELICA_IDM_SIZE];
 static uint8_t felica_pmm[FELICA_PMM_SIZE];
 
-
-
 rfalNfcDiscoverParam discoverparam;
 
 uint8_t state=0;
+Felica felica;
 
-bool nfcinit(){
+//felica読み込み初期化
+bool nfcinit_pollf(){
     ReturnCode err=rfalNfcInitialize();
     if(err!=RFAL_ERR_NONE){
         return false;
     }
     rfalNfcDefaultDiscParams(&discoverparam);
     discoverparam.devLimit=1U;
-    memcpy(discoverparam.nfcid3,NFCID3,sizeof(NFCID3));
-    memcpy(discoverparam.GB,GB,sizeof(GB));
-    discoverparam.GBLen=sizeof(GB);
-    discoverparam.p2pNfcaPrio=true;
     discoverparam.notifyCb=notify;
-    discoverparam.totalDuration=1000U;
+    discoverparam.totalDuration=10U;
     discoverparam.techs2Find=RFAL_NFC_TECH_NONE;
-
-    //NFC Aエミュレート用パラメータ
-    /*
-    memcpy(discoverparam.lmConfigPA.SENS_RES,ceNFCA_SENS_RES,RFAL_LM_SENS_RES_LEN);
-    memcpy(discoverparam.lmConfigPA.nfcid,ceNFCA_NFCID,RFAL_LM_NFCID_LEN_04);
-    discoverparam.lmConfigPA.nfcidLen=RFAL_LM_NFCID_LEN_04;
-    discoverparam.lmConfigPA.SEL_RES=ceNFCA_SEL_RES;
-    discoverparam.techs2Find|=RFAL_NFC_LISTEN_TECH_A;
-    //*/
-
-    //NFC Fエミュレート用パラメータ
-    /*
-    memcpy(discoverparam.lmConfigPF.SC,ceNFCF_SC,RFAL_LM_SENSF_SC_LEN);
-    memcpy(&ceNFCF_SENSF_RES[RFAL_NFCF_CMD_LEN],felica_idm,RFAL_NFCID2_LEN);
-    memcpy(&ceNFCF_SENSF_RES[RFAL_NFCF_CMD_LEN+RFAL_NFCID2_LEN],felica_pmm,RFAL_NFCID2_LEN);
-    memcpy(discoverparam.lmConfigPF.SENSF_RES,ceNFCF_SENSF_RES,RFAL_LM_SENSF_RES_LEN);
-    discoverparam.techs2Find|=RFAL_NFC_LISTEN_TECH_F;
-    //*/
 
     //Poll felica
     discoverparam.techs2Find|=RFAL_NFC_POLL_TECH_F;
@@ -82,40 +53,40 @@ bool nfcinit(){
     return true;
 }
 
-uint8_t block_data[20][16]={
-    {26,0x01,0x02,0x03,0x04,0x05,0x42,0x82,0xc7,0x01,0x00,0x00,0x0C,0x0D,0x0E,0x0F},
-    {26,0x01,0x02,0x03,0x04,0x05,0x42,0x82,0xc7,0x01,0x00,0x00,0x0C,0x0D,0x0E,0x0F},
-    //稚内(0x0F,0x40)で65535円チャージ
-    {18,0x02,0x02,0x03,0x04,0x05,0x0F,0x40,0x08,0x09,0xFF,0xFF,0x0C,0x0D,0x0E,0x0F},
-    //稚内(0x0F,0x40)から城北線味美(0x42,0x82)まで移動 残金は1万円(0x10 0x27)
-    {26,0x01,0x02,0x03,0x04,0x05,0x0F,0x40,0x42,0x82,0x10,0x27,0x0C,0x0D,0x0E,0x0F},
-    //城北線味美(0x42,0x82)から鹿児島中央(0x06,0xA2)まで0円で移動
-    {26,0x01,0x02,0x03,0x04,0x05,0x42,0x82,0x06,0xA2,0x10,0x27,0x0C,0x0D,0x0E,0x0F},
-    {26,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F},
-    {26,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F},
-    {26,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F},
-    {26,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F},
-    {26,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F},
-    {26,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F},
-    {26,0x01,0x02,0x03,0x04,0x05,0x42,0x82,0xc7,0x01,0x00,0x00,0x0C,0x0D,0x0E,0x0F},
-    {26,0x01,0x02,0x03,0x04,0x05,0x42,0x82,0xc7,0x01,0x00,0x00,0x0C,0x0D,0x0E,0x0F},
-    {26,0x01,0x02,0x03,0x04,0x05,0x42,0x82,0xc7,0x01,0x00,0x00,0x0C,0x0D,0x0E,0x0F},
-    {26,0x01,0x02,0x03,0x04,0x05,0x42,0x82,0xc7,0x01,0x00,0x00,0x0C,0x0D,0x0E,0x0F},
-    {26,0x01,0x02,0x03,0x04,0x05,0x42,0x82,0xc7,0x01,0x00,0x00,0x0C,0x0D,0x0E,0x0F},
-    {26,0x01,0x02,0x03,0x04,0x05,0x42,0x82,0xc7,0x01,0x00,0x00,0x0C,0x0D,0x0E,0x0F},
-    {26,0x01,0x02,0x03,0x04,0x05,0x42,0x82,0xc7,0x01,0x00,0x00,0x0C,0x0D,0x0E,0x0F},
-    {0xA0,0x00,0x02,0x04,0x10,0x03,0x0A,0x75,0x23,0x09,0x82,0x00,0xA0,0x00,0x25,0x0F},
-    {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x0a,0x1a,0x00,0x00,0x0F}
-    };
-void setup(){
+bool nfcinit(){
+    ReturnCode err=rfalNfcInitialize();
+    if(err!=RFAL_ERR_NONE){
+        return false;
+    }
+    rfalNfcDefaultDiscParams(&discoverparam);
+    discoverparam.devLimit=1U;
+    discoverparam.notifyCb=notify;
+    discoverparam.totalDuration=1000U;
+    discoverparam.techs2Find=RFAL_NFC_TECH_NONE;
+    //NFC Fエミュレート用パラメータ
+    memcpy(discoverparam.lmConfigPF.SC,ceNFCF_SC,RFAL_LM_SENSF_SC_LEN);
+    memcpy(&ceNFCF_SENSF_RES[RFAL_NFCF_CMD_LEN],felica_idm,RFAL_NFCID2_LEN);
+    memcpy(&ceNFCF_SENSF_RES[RFAL_NFCF_CMD_LEN+RFAL_NFCID2_LEN],felica_pmm,RFAL_NFCID2_LEN);
+    memcpy(discoverparam.lmConfigPF.SENSF_RES,ceNFCF_SENSF_RES,RFAL_LM_SENSF_RES_LEN);
+    discoverparam.techs2Find|=RFAL_NFC_LISTEN_TECH_F;
 
+    err=rfalNfcDiscover(&discoverparam);
+    rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_IDLE);
+    if(err!=RFAL_ERR_NONE){
+        return false;
+    }
+    state=EMULATE_STATE_START_DISCOVERY;
+
+    return true;
+}
+void setup(){
     Serial.begin(9600);
     delay(1000);
     Serial.printf("Setup\n");
     spiInit();
     delay(1000);
 
-    if(nfcinit()){
+    if(nfcinit_pollf()){
         Serial.printf("nfc init success\n");
     }
     else{
@@ -141,16 +112,9 @@ void loop(){
             rfalNfcGetActiveDevice(&nfcDevice);
             switch(nfcDevice->type){
                 case RFAL_NFC_LISTEN_TYPE_NFCF:
-                    platformLog("Felica card found. UID:");
-                    for(uint8_t i=0;i<nfcDevice->nfcidLen;i++){
-                        platformLog("%02X ",nfcDevice->nfcid[i]);
-                        
-                    }
-                    platformLog("\n");
                     NFCF(&nfcDevice->dev.nfcf);
                 break;
 
-                case RFAL_NFC_POLL_TYPE_NFCA:
                 case RFAL_NFC_POLL_TYPE_NFCF:
                     //platformLog("Activated in CE %s mode.\n", (nfcDevice->type == RFAL_NFC_POLL_TYPE_NFCA) ? "NFC-A" : "NFC-F");
                     //platformLog("Activated interface %s\n",(nfcDevice->rfInterface==RFAL_NFC_INTERFACE_ISODEP)?"ISODEP":((nfcDevice->rfInterface==RFAL_NFC_INTERFACE_NFCDEP)?"NFCDEP":"RF"));
@@ -164,7 +128,6 @@ void loop(){
             rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_IDLE);
 
             switch(nfcDevice->type){
-                case RFAL_NFC_POLL_TYPE_NFCA:
                 case RFAL_NFC_POLL_TYPE_NFCF:
                 break;
                 default:
@@ -184,36 +147,135 @@ void NFCF(rfalNfcfListenDevice *nfcDev){
     ReturnCode err=RFAL_ERR_NONE;
     uint8_t *rxData;
     uint16_t *rcvLen;
-    uint8_t txBuf[1024];
-    uint16_t txLen;
 
-    txLen=RFAL_NFCF_CMD_LEN+RFAL_NFCID2_LEN+2;
-    txBuf[0]=0x0A;
-    memcpy(&txBuf[RFAL_NFCF_CMD_LEN],nfcDev->sensfRes.NFCID2,RFAL_NFCID2_LEN);
-    for(uint16_t i=0;i<=0xFF;i++){
-        txBuf[RFAL_NFCF_CMD_LEN+RFAL_NFCID2_LEN]=(i&0xFF);
-        txBuf[RFAL_NFCF_CMD_LEN+RFAL_NFCID2_LEN+1]=(i>>8)&0xFF;
-        err=TransceiveBlocking(txBuf,txLen*8,&rxData,&rcvLen,RFAL_FWT_NONE);
+    FelicaCMD cmd;
 
-        Serial.printf("%4d err:%d rx %4d:",i,err,(*rcvLen/8));
-        for(uint16_t i=0;i<(*rcvLen/8);i++){
-            Serial.printf("%02X ",rxData[i]);
-        }
-        Serial.printf("\n");
+    //SEND polling 0x0003
+    cmd.polling.setup(TRANSPORT_IC_SYSTEM_CODE,FELICA_POLLING_REQUEST_CODE_SYSTEMCODE,0x00);
+    err=TransceiveBlocking((uint8_t*)&cmd,cmd.polling.get_size()*8,&rxData,&rcvLen,RFAL_FWT_NONE);
+    //配列の一つ目はサイズ
+    FelicaRES::Polling pollres(&rxData[1],rxData[0]-1);
 
+    //idm pmmを保存
+    memcpy(felica_idm,pollres.idm,FELICA_IDM_SIZE);
+    memcpy(felica_pmm,pollres.pmm,FELICA_PMM_SIZE);
+    //felica初期化
+    felica=Felica(felica_pmm,TRANSPORT_IC_SYSTEM_CODE,felica_idm);
+    felica.initialize_1st();
+    platformLog("idm:");
+    for(uint8_t i=0;i<FELICA_IDM_SIZE;i++){
+        platformLog("%02X ",pollres.idm[i]);
     }
-    /*
-    txBuf[RFAL_NFCF_CMD_LEN+RFAL_NFCID2_LEN]=0x01;
-    txBuf[RFAL_NFCF_CMD_LEN+RFAL_NFCID2_LEN+1]=0x8B;
-    txBuf[RFAL_NFCF_CMD_LEN+RFAL_NFCID2_LEN+2]=0x00;
-    txBuf[RFAL_NFCF_CMD_LEN+RFAL_NFCID2_LEN+3]=0x01;
-    txBuf[RFAL_NFCF_CMD_LEN+RFAL_NFCID2_LEN+4]=0x80;
-    txBuf[RFAL_NFCF_CMD_LEN+RFAL_NFCID2_LEN+5]=0x00;
-    txLen=RFAL_NFCF_CMD_LEN+RFAL_NFCID2_LEN+6;
-    //*/
+    platformLog("\n");
+    platformLog("pmm:");
+    for(uint8_t i=0;i<FELICA_PMM_SIZE;i++){
+        platformLog("%02X ",pollres.pmm[i]);
+    }
+    platformLog("\n");
 
+    servicecode_t services[32];
+    uint8_t scount=0;
+    //サービスコード全探索
+    for(uint8_t i=1;i<0xFF;i++){
+        cmd.search_service_code.setup(felica_idm,0);
+        cmd.search_service_code.service_index=i;
+        err=TransceiveBlocking((uint8_t*)&cmd,cmd.search_service_code.get_size()*8,&rxData,&rcvLen,RFAL_FWT_NONE);
+        areacode_t code=(areacode_t)(*(_uint16_l*)&rxData[10]);
+        servicecode_t end_service_code;
+        if(code==0xFFFF){
+            break;
+        }
 
+        if(felica_is_Area_Code(code)){
+            end_service_code=(servicecode_t)(*(_uint16_l*)&rxData[12]);
+        }
 
+        //鍵バージョン取得
+        cmd.request_service.setup(felica_idm,1,(_uint16_l*)&code);
+        err=TransceiveBlocking((uint8_t*)&cmd,cmd.request_service.get_size()*8,&rxData,&rcvLen,RFAL_FWT_NONE);
+        const uint16_t keyver=*(_uint16_l*)&rxData[11];
+
+        if(felica_is_Area_Code(code)){
+            platformLog("area:%04X end:%04X\n",code,end_service_code);
+            platformLog("keyver%04X\n",keyver);
+            platformLog("addarea:%d\n",felica.add_area(code,end_service_code,keyver));
+        }
+        else if(!felica_Service_is_Auth_Required(code)){
+            platformLog("service code :%04X\n",code);
+
+            services[scount]=code;
+            scount++;
+
+            cmd.read_without_encryption.setup(felica_idm,1,1);
+            cmd.read_without_encryption.set_service(0,code);
+            uint8_t b=0;
+            uint16_t status;
+            do{
+                cmd.read_without_encryption.set_block_list_element(0,BlockListElement(0,0,b));
+                err=TransceiveBlocking((uint8_t*)&cmd,cmd.read_without_encryption.get_size()*8,&rxData,&rcvLen,RFAL_FWT_NONE);
+                status=rxData[10];
+                status=(status<<8)|rxData[11];
+                /*
+                if(status==0x0000){
+                    memcpy(block_data_buf[b],&rxData[13],FELICA_BLOCK_SIZE);
+                }
+                //*/
+                b++;
+                /*
+                platformLog("rx:");
+                for(uint8_t i=0;i<(*rcvLen)/8;i++){
+                    platformLog("%02X ",rxData[i]);
+                }
+                platformLog("\n");
+                //*/
+            }while(status==0x0000);
+            b--;
+            platformLog("service size:%d\n",b);
+            platformLog("addservice:%d\n",felica.add_service(b,code,keyver));
+        }
+        /*
+        platformLog("rx:");
+        for(uint8_t i=0;i<(*rcvLen)/8;i++){
+            platformLog("%02X ",rxData[i]);
+        }
+        platformLog("\n");
+        //*/
+    }
+    platformLog("init2:%d\n",felica.initialize_2nd());
+
+    cmd.read_without_encryption.setup(felica_idm,1,1);
+    for(uint8_t i=0;i<scount;i++){
+        servicecode_t servicecode=services[i];
+        platformLog("service code:%04X\n",servicecode);
+        uint8_t b=0;
+        uint16_t status;
+        uint8_t block_data_buf[FELICA_BLOCK_SIZE];
+        cmd.read_without_encryption.set_service(0,servicecode);
+        do{
+            cmd.read_without_encryption.set_block_list_element(0,BlockListElement(0,0,b));
+            err=TransceiveBlocking((uint8_t*)&cmd,cmd.read_without_encryption.get_size()*8,&rxData,&rcvLen,RFAL_FWT_NONE);
+            status=rxData[10];
+            status=(status<<8)|rxData[11];
+            if(status==0x0000){
+                memcpy(block_data_buf,&rxData[13],FELICA_BLOCK_SIZE);
+                platformLog("blocknum:%d ",b);
+                platformLog("write:%d\n",felica.write_force(servicecode,b,block_data_buf));
+            }
+            b++;
+            /*
+            platformLog("rx:");
+            for(uint8_t i=0;i<(*rcvLen)/8;i++){
+                platformLog("%02X ",rxData[i]);
+            }
+            platformLog("\n");
+            //*/
+        }while(status==0x0000);
+        b--;
+    }
+
+    show_block();
+
+    nfcinit();
 }
 
 void emulate(rfalNfcDevice *nfcDev){
@@ -244,21 +306,9 @@ void emulate(rfalNfcDevice *nfcDev){
             case RFAL_NFC_STATE_DATAEXCHANGE:
             case RFAL_NFC_STATE_DATAEXCHANGE_DONE:
                 //*
-                if(nfcDev->type==RFAL_NFC_POLL_TYPE_NFCA){
-                    txLen=2;
-                    txBuf[0]=0x90;
-                    txBuf[1]=0x00;
-                    err=TransceiveBlocking(txBuf,txLen,&rxData,&rcvLen,RFAL_FWT_NONE);
-                    Serial.printf("type a ");
-                    Serial.printf("rxdata:");
-                    for(uint16_t i=0;i<*rcvLen;i++){
-                        Serial.printf("%02X ",rxData[i]);
-                    }
-                    Serial.printf("\n");
-                }
-                else{
+                if(nfcDev->type==RFAL_NFC_POLL_TYPE_NFCF){
                     const uint8_t rxLen=rxData[0]-1;
-                    felica->listen(&rxData[1],rxLen,txBuf,&txLen);
+                    felica.listen(&rxData[1],rxLen,txBuf,&txLen);
                     err=TransceiveBlocking(txBuf,(txLen*8),&rxData,&rcvLen,RFAL_FWT_NONE);
                     Serial.printf("err:%d\n",err);
                     Serial.printf("tx:");
@@ -317,3 +367,14 @@ ReturnCode TransceiveBlocking( uint8_t *txBuf, uint16_t txBufSize, uint8_t **rxD
 void notify(rfalNfcState st){
     //Serial.printf("Callback state:%d\n",st);
 }
+
+void show_block(){
+        for(uint16_t i=0;i<FELICA_BLOCK_COUNT;i++){
+            Serial.printf("addr:%016p ",felica.block[i]);
+            Serial.printf("%04d : ",i);
+            for(uint8_t j=0;j<FELICA_BLOCK_SIZE;j++){
+                Serial.printf("%02X ",felica.block[i].data[j]);
+            }
+            Serial.printf("\n");
+        }
+    }

@@ -89,14 +89,22 @@ int main(){
     }
     printf("\n");
 
-    Felica::FelicaCMD felicacmd;
-    _uint16_l ul[]={0x11ff,0xAABB};
-    felicacmd.request_service.setup(idm,2,ul);
+    FelicaCMD felicacmd;
 
-    printf("cmd:");
-    for(uint8_t i=0;i<sizeof(felicacmd);i++){
-        printf("0x%02X,",((uint8_t*)&felicacmd)[i]);
+    felicacmd.polling.setup(0x0003,FELICA_POLLING_REQUEST_CODE_SYSTEMCODE,0x00);
+    fe.listen((uint8_t*)&felicacmd,felicacmd.polling.get_size(),txBuf,&txBufLen);
+        printf("res:");
+        for(uint8_t i=0;i<txBufLen;i++){
+            printf("0x%02X,",txBuf[i]);
+        }
+        printf("\n");
+    FelicaRES::Polling pollres(txBuf,txBufLen);
+
+    printf("idm:");
+    for(uint8_t i=0;i<FELICA_IDM_SIZE;i++){
+        printf("%02X ",pollres.idm[i]);
     }
     printf("\n");
+
 
 }
