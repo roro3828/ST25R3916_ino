@@ -2,7 +2,7 @@
  * @attention
  * MIT License
  * 
- * Copyright (c) 2024 ろ
+ * Copyright (c) 2024 ろろ (https://roro.ro)
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -38,6 +38,7 @@ Felica::Felica(){
     FelicaBlock::System_data1 &systemdata1=this->block[FELICA_SYSTEM0_INDEX].system_data1;
     FelicaBlock::System_data2 &systemdata2=this->block[FELICA_SYSTEM0_INDEX+1].system_data2;
     systemdata1.system_block_count=FELICA_BLOCK_COUNT;
+    systemdata2.is_initialized=FELICA_NOT_INITIALIZED;
 
     //現在のシステムをシステム0に合わせる
     this->current_system_index=FELICA_SYSTEM0_INDEX;
@@ -56,6 +57,7 @@ Felica::Felica(const uint8_t (&pmm)[FELICA_PMM_SIZE],const systemcode_t &systemc
     systemdata1.systemcode=systemcode;
     memcpy(systemdata1.idm,idm,FELICA_IDM_SIZE);
     systemdata1.system_block_count=FELICA_BLOCK_COUNT;
+    systemdata2.is_initialized=FELICA_NOT_INITIALIZED;
 
     //現在のシステムをシステム0に合わせる
     this->current_system_index=FELICA_SYSTEM0_INDEX;
@@ -164,6 +166,7 @@ Felica_Return_Code Felica::separate_system(const blockcount_t &new_system_size,c
     new_system1.system_block_count=new_system_size;
     new_system1.systemcode=systemcode;
     memcpy(new_system1.idm,idm,FELICA_IDM_SIZE);
+    new_system2.is_initialized=FELICA_NOT_INITIALIZED;
 
     return Felica_Return_Code::FELICA_RETURN_CODE_SUCCESS;
 }
@@ -347,41 +350,47 @@ Felica_Return_Code Felica::initialize_2nd(){
     if(this->initialized!=FELICA_1ST_INITIALIZED){
         return Felica_Return_Code::FELICA_RETURN_CODE_INVALID_INITIALIZE;
     }
-    blockcount_t system_index=FELICA_SYSTEM0_INDEX;
-    while(system_index<FELICA_BLOCK_COUNT){
-        const FelicaBlock::System_data1 &target_system=this->block[system_index].system_data1;
-        //データブロックの始まりの位置
-        const blockcount_t data_block_index=system_index+FELICA_SYSTEM_DATA_SIZE+target_system.area_service_data_used_count;
-        //割り当て済みのデータブロックのサイズ
-        blockcount_t data_block_used_size=0;
-        for(blockcount_t i=0;i<target_system.area_service_data_used_count;i++){
-            FelicaBlock::Service &service=this->block[system_index+FELICA_SYSTEM_DATA_SIZE+i].service;
-            if(!felica_is_Service_Code(service.servicecode)){
-                continue;
-            }
-
-            const FelicaBlock::Service &ref_service=this->block[service.reference_index].service;
-            if(ref_service.servicecode==service.servicecode){
-                service.service_block_index=data_block_index+data_block_used_size;
-                data_block_used_size+=(service.service_block_count+FELICA_BLOCK_METADATA_SIZE);
-            }
-            else{
-                service.service_block_index=ref_service.service_block_index;
-            }
-        }
-        sort_area_service(&this->block[system_index+FELICA_SYSTEM_DATA_SIZE],target_system.area_service_data_used_count);
-
-
-        system_index+=target_system.system_block_count;
+    const FelicaBlock::System_data1 &system_data1=this->block[this->current_system_index].system_data1;
+    FelicaBlock::System_data2 &system_data2=this->block[this->current_system_index+1].system_data2;
+    if(system_data2.is_initialized!=FELICA_NOT_INITIALIZED){
+        return Felica_Return_Code::FELICA_RETURN_CODE_INVALID_INITIALIZE;
     }
+    //データブロックの始まりの位置
+    const blockcount_t data_block_index=this->current_system_index+FELICA_SYSTEM_DATA_SIZE+system_data1.area_service_data_used_count;
+    //割り当て済みのデータブロックのサイズ
+    blockcount_t data_block_used_size=0;
+    for(blockcount_t i=0;i<system_data1.area_service_data_used_count;i++){
+        FelicaBlock::Service &service=this->block[this->current_system_index+FELICA_SYSTEM_DATA_SIZE+i].service;
+        if(!felica_is_Service_Code(service.servicecode)){
+            continue;
+        }
 
-    this->initialized=FELICA_2ND_INITIALIZED;
+        const FelicaBlock::Service &ref_service=this->block[service.reference_index].service;
+        if(ref_service.servicecode==service.servicecode){
+            service.service_block_index=data_block_index+data_block_used_size;
+            data_block_used_size+=(service.service_block_count+FELICA_BLOCK_METADATA_SIZE);
+        }
+        else{
+            service.service_block_index=ref_service.service_block_index;
+        }
+    }
+    sort_area_service(&this->block[this->current_system_index+FELICA_SYSTEM_DATA_SIZE],system_data1.area_service_data_used_count);
+    system_data2.is_initialized=FELICA_2ND_INITIALIZED;
 
     return Felica_Return_Code::FELICA_RETURN_CODE_SUCCESS;
 }
+Felica_Return_Code Felica::initialize_2nd(const systemcode_t &systemcode){
+    this->switch_system(systemcode);
+    return this->initialize_2nd();
+}
+Felica_Return_Code Felica::initialize_2nd(const uint8_t (&idm)[FELICA_IDM_SIZE]){
+    this->switch_system(idm);
+    return this->initialize_2nd();
+}
 
 FelicaBlock::Service* Felica::get_service(const servicecode_t &servicecode){
-    if(this->initialized!=FELICA_2ND_INITIALIZED){
+    const FelicaBlock::System_data2 &system_data2=this->block[this->current_system_index+1].system_data2;
+    if(system_data2.is_initialized!=FELICA_2ND_INITIALIZED){
         return NULL;
     }
     
@@ -408,7 +417,8 @@ FelicaBlock::Service* Felica::get_service(const servicecode_t &servicecode){
     return NULL;
 }
 FelicaBlock::Area* Felica::get_area(const areacode_t &areacode){
-    if(this->initialized!=FELICA_2ND_INITIALIZED){
+    const FelicaBlock::System_data2 &system_data2=this->block[this->current_system_index+1].system_data2;
+    if(system_data2.is_initialized!=FELICA_2ND_INITIALIZED){
         return NULL;
     }
     
@@ -563,10 +573,11 @@ void Felica::listen(const uint8_t *rxBuf,const uint16_t rxBufLen,uint8_t *txBuf,
 }
 void Felica::listen_Polling(const systemcode_t &system_code,const uint8_t &request_code,const uint8_t &time_slot,uint8_t *txBuf,uint16_t *txBufLen){
     *txBufLen=0;
-    if(this->initialized!=FELICA_2ND_INITIALIZED){
+    if(this->switch_system(system_code)!=Felica_Return_Code::FELICA_RETURN_CODE_SUCCESS){
         return;
     }
-    if(this->switch_system(system_code)!=Felica_Return_Code::FELICA_RETURN_CODE_SUCCESS){
+    const FelicaBlock::System_data2 &system_data2=this->block[this->current_system_index+1].system_data2;
+    if(system_data2.is_initialized!=FELICA_2ND_INITIALIZED){
         return;
     }
 
@@ -594,12 +605,13 @@ void Felica::listen_Polling(const systemcode_t &system_code,const uint8_t &reque
 }
 void Felica::listen_Request_Service(const uint8_t (&idm)[FELICA_IDM_SIZE],const uint8_t &node_count,const _uint16_l *node_code_list,uint8_t *txBuf,uint16_t *txBufLen){
     *txBufLen=0;
-    if(this->initialized!=FELICA_2ND_INITIALIZED){
-        return;
-    }
 
     //現在のシステムとidmが違った場合システムを切り替え
     if(this->switch_system(idm)!=Felica_Return_Code::FELICA_RETURN_CODE_SUCCESS){
+        return;
+    }
+    const FelicaBlock::System_data2 &system_data2=this->block[this->current_system_index+1].system_data2;
+    if(system_data2.is_initialized!=FELICA_2ND_INITIALIZED){
         return;
     }
     
@@ -647,12 +659,13 @@ void Felica::listen_Request_Service(const uint8_t (&idm)[FELICA_IDM_SIZE],const 
 }
 void Felica::listen_Request_Response(const uint8_t (&idm)[FELICA_IDM_SIZE],uint8_t *txBuf,uint16_t *txBufLen){
     *txBufLen=0;
-    if(this->initialized!=FELICA_2ND_INITIALIZED){
-        return;
-    }
 
     //現在のシステムとidmが違った場合システムを切り替え
     if(this->switch_system(idm)!=Felica_Return_Code::FELICA_RETURN_CODE_SUCCESS){
+        return;
+    }
+    const FelicaBlock::System_data2 &system_data2=this->block[this->current_system_index+1].system_data2;
+    if(system_data2.is_initialized!=FELICA_2ND_INITIALIZED){
         return;
     }
 
@@ -665,11 +678,13 @@ void Felica::listen_Request_Response(const uint8_t (&idm)[FELICA_IDM_SIZE],uint8
 }
 void Felica::listen_Read_Without_Encryption(const uint8_t (&idm)[FELICA_IDM_SIZE],const uint8_t &service_count,const _uint16_l *service_code_list,const uint8_t &block_count,const uint8_t *block_list,uint8_t *txBuf,uint16_t *txBufLen){
     *txBufLen=0;
-    if(this->initialized!=FELICA_2ND_INITIALIZED){
-        return;
-    }
+
     //現在のシステムとidmが違った場合システムを切り替え
     if(this->switch_system(idm)!=Felica_Return_Code::FELICA_RETURN_CODE_SUCCESS){
+        return;
+    }
+    const FelicaBlock::System_data2 &system_data2=this->block[this->current_system_index+1].system_data2;
+    if(system_data2.is_initialized!=FELICA_2ND_INITIALIZED){
         return;
     }
 
@@ -720,11 +735,13 @@ void Felica::listen_Read_Without_Encryption(const uint8_t (&idm)[FELICA_IDM_SIZE
 
 void Felica::listen_Request_System_Code(const uint8_t (&idm)[FELICA_IDM_SIZE],uint8_t *txBuf,uint16_t *txBufLen){
     *txBufLen=0;
-    if(this->initialized!=FELICA_2ND_INITIALIZED){
-        return;
-    }
+
     //現在のシステムとidmが違った場合システムを切り替え
     if(this->switch_system(idm)!=Felica_Return_Code::FELICA_RETURN_CODE_SUCCESS){
+        return;
+    }
+    const FelicaBlock::System_data2 &system_data2=this->block[this->current_system_index+1].system_data2;
+    if(system_data2.is_initialized!=FELICA_2ND_INITIALIZED){
         return;
     }
 
@@ -912,6 +929,14 @@ void FelicaCMD::Search_Service_Code::setup(const uint8_t (&idm)[FELICA_IDM_SIZE]
 }
 uint8_t FelicaCMD::Search_Service_Code::get_size()const{
     return FELICA_CMD_SIZE+FELICA_IDM_SIZE+2;
+}
+
+void FelicaCMD::Request_System_Code::setup(const uint8_t (&idm)[FELICA_IDM_SIZE]){
+    this->cmd=FELICA_REQUEST_SYSTEM_CODE_CMD_CODE;
+    memcpy(this->idm,idm,FELICA_IDM_SIZE);
+}
+uint8_t FelicaCMD::Request_System_Code::get_size()const{
+    return FELICA_CMD_SIZE+FELICA_IDM_SIZE;
 }
 /**********************************************************************************************
  * Felica RES

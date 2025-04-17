@@ -2,7 +2,7 @@
  * @attention
  * MIT License
  * 
- * Copyright (c) 2024 ろ
+ * Copyright (c) 2024 ろろ (https://roro.ro)
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -70,7 +70,7 @@ class _uint16_b{
 using blockcount_t=uint16_t;
 
 
-#define FELICA_BLOCK_COUNT 128U
+#define FELICA_BLOCK_COUNT 249U
 /**
  * FelicaのIDmのサイズ
  */
@@ -283,6 +283,7 @@ union FelicaBlock{
     struct System_data2{
         uint16_t system_key_ver;
         uint16_t issuer_id;
+        uint8_t is_initialized;
     }system_data2;
     //エリアデータ
     struct Area{
@@ -387,7 +388,11 @@ class Felica{
     /**
      * @brief 2次初期化 サービス/エリアを確定させる これ以降サービスやエリアを追加できない
      */
+    private:
     Felica_Return_Code initialize_2nd();
+    public:
+    Felica_Return_Code initialize_2nd(const systemcode_t &systemcode);
+    Felica_Return_Code initialize_2nd(const uint8_t (&idm)[FELICA_IDM_SIZE]);
 
     /**
      * @brief 指定したサービスの指定したブロックにデータを書き込む
@@ -536,6 +541,14 @@ union FelicaCMD{
         //コマンドのサイズを取得
         uint8_t get_size()const;
     }search_service_code;
+    class Request_System_Code{
+        uint8_t cmd;
+        public:
+        uint8_t idm[FELICA_IDM_SIZE];
+        void setup(const uint8_t (&idm)[FELICA_IDM_SIZE]);
+        //コマンドのサイズを取得
+        uint8_t get_size()const;
+    }request_system_code;
 
     FelicaCMD();
 };

@@ -8,27 +8,28 @@ SPISettings _spi_settings;
 void spiTxRx(uint8_t* txbuf,uint8_t* rxbuf,size_t len){
     if((txbuf!=NULL)&&(rxbuf!=NULL)){
         #ifdef SPI_DEBUG
-            Serial.printf("tx <- :");
+            platformLog("tx[%4d] <- :",len);
             for(size_t i=0;i<len;i++){
-                Serial.printf("%02X ",txbuf[i]);
+                platformLog("%02X ",txbuf[i]);
             }
-            Serial.printf("\n");
+            platformLog("\n");
         #endif
         SPI.transfer(txbuf,rxbuf,len);
         #ifdef SPI_DEBUG
-            Serial.printf("rx -> :");
+            platformLog("rx[%4d] -> :",len);
             for(size_t i=0;i<len;i++){
-                Serial.printf("%02X ",rxbuf[i]);
+                platformLog("%02X ",rxbuf[i]);
             }
-            Serial.printf("\n");
+            platformLog("\n");
         #endif
     }
     else if(txbuf!=NULL){
         #ifdef SPI_DEBUG
-            Serial.printf("tx <- :");
+            platformLog("tx[%4d] <- :",len);
             for(size_t i=0;i<len;i++){
-                Serial.printf("%02X ",txbuf[i]);
+                platformLog("%02X ",txbuf[i]);
             }
+            platformLog("\n");
         #endif
         memcpy(_spi_buf,txbuf,len);
         SPI.transfer(_spi_buf,len);
@@ -37,10 +38,11 @@ void spiTxRx(uint8_t* txbuf,uint8_t* rxbuf,size_t len){
         memset(rxbuf,0,len);
         SPI.transfer(rxbuf,len);
         #ifdef SPI_DEBUG
-            Serial.printf("rx -> :");
+            platformLog("rx[%4d] -> :",len);
             for(size_t i=0;i<len;i++){
-                Serial.printf("%02X ",rxbuf[i]);
+                platformLog("%02X ",rxbuf[i]);
             }
+            platformLog("\n");
         #endif
     }
 }
